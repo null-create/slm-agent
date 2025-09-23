@@ -4,11 +4,11 @@ Model handler for fine-tuned agent inference.
 
 import logging
 import asyncio
-from typing import Any, Optional
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
 from peft import PeftModel
 
 from .mcp_client import MCPClient, ToolCall
@@ -303,3 +303,236 @@ When you need to use a tool, format your response with the tool usage blocks as 
             "vocab_size": len(self.tokenizer) if self.tokenizer else None,
             "available_tools": list(self.mcp_client.available_tools.keys()),
         }
+
+
+class ModelHandler:
+    """
+    A handler class for the Microsoft Phi-3 Mini-4K-Instruct model.
+
+    This class provides an easy-to-use interface for loading the model,
+    formatting chat conversations, and generating responses.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "microsoft/Phi-3-mini-4k-instruct",
+        device_map: str = "cuda",
+        torch_dtype: str = "auto",
+        trust_remote_code: bool = True,
+        attn_implementation: Optional[str] = None,
+        random_seed: int = 0,
+    ):
+        """
+        Initialize model handler.
+
+        Args:
+            model_name: The model name/path to load
+            device_map: Device mapping for model placement
+            torch_dtype: Torch data type for model weights
+            trust_remote_code: Whether to trust remote code execution
+            attn_implementation: Attention implementation ("flash_attention_2" for flash attention)
+            random_seed: Random seed for reproducibility
+        """
+        self.model_name = model_name
+        self.device_map = device_map
+        self.torch_dtype = torch_dtype
+        self.trust_remote_code = trust_remote_code
+        self.attn_implementation = attn_implementation
+
+        # Set random seed for reproducibility
+        torch.random.manual_seed(random_seed)
+
+        # Initialize model and tokenizer
+        self.model = None
+        self.tokenizer = None
+        self.pipeline = None
+
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+
+        # Load model and tokenizer
+        self._load_model()
+
+    def _load_model(self) -> None:
+        """Load the model, tokenizer, and initialize the pipeline."""
+        try:
+            self.logger.info(f"Loading model: {self.model_name}")
+
+            # Prepare model loading arguments
+            model_args = {
+                "device_map": self.device_map,
+                "torch_dtype": self.torch_dtype,
+                "trust_remote_code": self.trust_remote_code,
+            }
+
+            # Add flash attention if specified
+            if self.attn_implementation:
+                model_args["attn_implementation"] = self.attn_implementation
+
+            # Load model and tokenizer
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name, **model_args
+            )
+
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+
+            # Initialize pipeline
+            self.pipeline = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+            )
+
+            self.logger.info("Model loaded successfully")
+
+        except Exception as e:
+            self.logger.error(f"Failed to load model: {str(e)}")
+            raise
+
+    @staticmethod
+    def format_chat_prompt(
+        system_message: str,
+        user_message: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """
+        Format a chat prompt using Phi-3's chat format.
+
+        Args:
+            system_message: The system prompt
+            user_message: The user's message
+            conversation_history: Optional conversation history as list of dicts
+                                with 'role' and 'content' keys
+
+        Returns:
+            Formatted chat prompt string
+        """
+        prompt = f"<|system|>\n{system_message}<|end|>\n"
+
+        # Add conversation history if provided
+        if conversation_history:
+            for message in conversation_history:
+                role = message.get("role", "")
+                content = message.get("content", "")
+
+                if role == "user":
+                    prompt += f"<|user|>\n{content}<|end|>\n"
+                elif role == "assistant":
+                    prompt += f"<|assistant|>\n{content}<|end|>\n"
+
+        # Add current user message
+        prompt += f"<|user|>\n{user_message}<|end|>\n<|assistant|>\n"
+
+        return prompt
+
+    def generate_response(
+        self,
+        messages: List[Dict[str, str]],
+        max_new_tokens: int = 500,
+        temperature: float = 0.0,
+        do_sample: bool = False,
+        return_full_text: bool = False,
+        **kwargs,
+    ) -> str:
+        """
+        Generate a response using the chat format.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content' keys
+            max_new_tokens: Maximum number of new tokens to generate
+            temperature: Sampling temperature
+            do_sample: Whether to use sampling
+            return_full_text: Whether to return the full text including input
+            **kwargs: Additional generation arguments
+
+        Returns:
+            Generated response text
+        """
+        if not self.pipeline:
+            raise RuntimeError("Model pipeline not initialized")
+
+        # Prepare generation arguments
+        generation_args = {
+            "max_new_tokens": max_new_tokens,
+            "return_full_text": return_full_text,
+            "temperature": temperature,
+            "do_sample": do_sample,
+            **kwargs,
+        }
+
+        try:
+            # Generate response
+            output = self.pipeline(messages, **generation_args)
+            return output[0]["generated_text"]
+
+        except Exception as e:
+            self.logger.error(f"Generation failed: {str(e)}")
+            raise
+
+    def chat(
+        self,
+        user_message: str,
+        system_message: str = "You are a helpful AI assistant.",
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        **generation_kwargs,
+    ) -> str:
+        """
+        Simple chat interface using string inputs.
+
+        Args:
+            user_message: The user's message
+            system_message: The system prompt
+            conversation_history: Optional conversation history
+            **generation_kwargs: Additional generation arguments
+
+        Returns:
+            Generated response text
+        """
+        # Build messages list
+        messages = [{"role": "system", "content": system_message}]
+
+        # Add conversation history
+        if conversation_history:
+            messages.extend(conversation_history)
+
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
+
+        return self.generate_response(messages, **generation_kwargs)
+
+    def get_model_info(self) -> Dict[str, Any]:
+        """
+        Get information about the loaded model.
+
+        Returns:
+            Dictionary containing model information
+        """
+        info = {
+            "model_name": self.model_name,
+            "vocab_size": getattr(self.tokenizer, "vocab_size", None),
+            "device_map": self.device_map,
+            "torch_dtype": str(self.torch_dtype),
+            "model_loaded": self.model is not None,
+            "tokenizer_loaded": self.tokenizer is not None,
+            "pipeline_loaded": self.pipeline is not None,
+        }
+
+        if hasattr(self.model, "config"):
+            info["model_config"] = {
+                "hidden_size": getattr(self.model.config, "hidden_size", None),
+                "num_attention_heads": getattr(
+                    self.model.config, "num_attention_heads", None
+                ),
+                "num_hidden_layers": getattr(
+                    self.model.config, "num_hidden_layers", None
+                ),
+                "max_position_embeddings": getattr(
+                    self.model.config, "max_position_embeddings", None
+                ),
+            }
+
+        return info
+
+    def __repr__(self) -> str:
+        return f"ModelHandler(model_name='{self.model_name}', device_map='{self.device_map}')"
