@@ -28,72 +28,137 @@ class GenerationParams:
 
 
 class AgentModelHandler:
-    """Handler for
-    model inference with tool integration."""
+    """
+    Handler for agent model inference with tool integration.
+
+    This class provides an interface for loading fine-tuned models with LoRA adapters,
+    formatting prompts, and generating responses with tool usage capability.
+    """
 
     def __init__(
         self,
         base_model_path: str,
         adapter_path: str,
-        mcp_client: MCPClient,
+        mcp_client,  # MCPClient type hint removed to avoid import issues
         device: str = "auto",
+        torch_dtype: str = "auto",
+        trust_remote_code: bool = True,
+        random_seed: int = 0,
+        padding_side: str = "left",
     ) -> None:
-        """Initialize the model handler."""
+        """
+        Initialize the agent model handler.
+
+        Args:
+            base_model_path: Path to the base model
+            adapter_path: Path to the LoRA adapter
+            mcp_client: MCP client for tool integration
+            device: Device mapping for model placement
+            torch_dtype: Torch data type for model weights
+            trust_remote_code: Whether to trust remote code execution
+            random_seed: Random seed for reproducibility
+            padding_side: Padding side for tokenizer
+        """
         self.base_model_path = base_model_path
         self.adapter_path = adapter_path
         self.mcp_client = mcp_client
         self.device = device
-        self.logger = logging.getLogger(__name__)
+        self.torch_dtype = torch_dtype
+        self.trust_remote_code = trust_remote_code
+        self.padding_side = padding_side
 
+        # Set random seed for reproducibility
+        torch.random.manual_seed(random_seed)
+
+        # Initialize components
         self.tokenizer = None
         self.model = None
         self.generation_config = None
+        self.pipeline = None
 
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
+
+        # Load model and tokenizer
         self._load_model()
 
     def _load_model(self) -> None:
         """Load the fine-tuned model and tokenizer."""
-        self.logger.info("Loading tokenizer...")
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.base_model_path,
-            # trust_remote_code=True,
-            # padding_side="left",  # For batch generation
-        )
+        try:
+            self.logger.info(f"Loading tokenizer from: {self.base_model_path}")
 
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+            # Load tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.base_model_path,
+                trust_remote_code=self.trust_remote_code,
+                padding_side=self.padding_side,
+            )
 
-        self.logger.info("Loading base model...")
-        base_model = AutoModelForCausalLM.from_pretrained(
-            self.base_model_path,
-            # torch_dtype=torch.bfloat16,
-            # device_map=self.device,
-            # trust_remote_code=True,
-        )
+            # Set pad token if not available
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        self.logger.info("Loading LoRA adapter...")
-        self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
-        self.model.eval()
+            self.logger.info(f"Loading base model from: {self.base_model_path}")
 
-        # Set up generation configuration
-        self.generation_config = GenerationConfig(
-            max_new_tokens=512,
-            temperature=0.7,
-            top_p=0.9,
-            do_sample=True,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
-            repetition_penalty=1.1,
-        )
+            # Prepare model loading arguments
+            model_args = {
+                "torch_dtype": self.torch_dtype,
+                "device_map": self.device,
+                "trust_remote_code": self.trust_remote_code,
+            }
 
-        self.logger.info("Model loaded successfully!")
+            # Load base model
+            base_model = AutoModelForCausalLM.from_pretrained(
+                self.base_model_path, **model_args
+            )
+
+            self.logger.info(f"Loading LoRA adapter from: {self.adapter_path}")
+
+            # Load LoRA adapter
+            self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
+            self.model.eval()
+
+            # Set up generation configuration with better defaults
+            self.generation_config = GenerationConfig(
+                max_new_tokens=512,
+                temperature=0.7,
+                top_p=0.9,
+                do_sample=True,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+                repetition_penalty=1.1,
+            )
+
+            # Initialize pipeline for easier generation
+            self.pipeline = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+            )
+
+            self.logger.info("Model loaded successfully!")
+
+        except Exception as e:
+            self.logger.error(f"Failed to load model: {str(e)}")
+            raise
 
     def format_prompt(self, instruction: str, input_text: str = "") -> str:
-        """Format the prompt for the fine-tuned model."""
-        tools_description = self.mcp_client.get_available_tools_description()
+        """
+        Format the prompt for the fine-tuned model.
 
-        # TODO: update the system_prompt and possibly store an external template
-        # somewhere that's read in upon initialization
+        Args:
+            instruction: The main instruction/query
+            input_text: Optional additional input context
+
+        Returns:
+            Formatted prompt string
+        """
+        try:
+            tools_description = self.mcp_client.get_available_tools_description()
+        except Exception as e:
+            self.logger.warning(f"Failed to get tools description: {e}")
+            tools_description = "No tools available."
 
         system_prompt = f"""You are a helpful AI assistant that can use tools to complete tasks. {tools_description}
 
@@ -114,8 +179,21 @@ When you need to use a tool, format your response with the tool usage blocks as 
         input_text: str = "",
         generation_params: Optional[GenerationParams] = None,
         max_tool_iterations: int = 3,
-    ) -> dict[str, Any]:
-        """Generate response with tool usage capability."""
+    ) -> Dict[str, Any]:
+        """
+        Generate response with tool usage capability.
+
+        Args:
+            instruction: The main instruction/query
+            input_text: Optional additional input context
+            generation_params: Generation parameters
+            max_tool_iterations: Maximum number of tool usage iterations
+
+        Returns:
+            Dictionary containing the response and metadata
+        """
+        if not self.model or not self.tokenizer or not self.pipeline:
+            raise RuntimeError("Model components not properly initialized")
 
         if generation_params is None:
             generation_params = GenerationParams()
@@ -125,70 +203,92 @@ When you need to use a tool, format your response with the tool usage blocks as 
         current_input = input_text
 
         for iteration in range(max_tool_iterations):
-            self.logger.info(f"Generation iteration {iteration + 1}")
-
-            # Generate text response
-            response = await self._generate_text(
-                current_instruction, current_input, generation_params
+            self.logger.info(
+                f"Generation iteration {iteration + 1}/{max_tool_iterations}"
             )
 
-            conversation_history.append(
-                {
-                    "iteration": iteration + 1,
-                    "instruction": current_instruction,
-                    "input": current_input,
-                    "response": response,
-                }
-            )
-
-            # Parse tool calls from response
-            tool_calls = self.mcp_client.parse_tool_calls(response)
-
-            if not tool_calls:
-                # No tool calls found, return final response
-                return {
-                    "final_response": response,
-                    "tool_calls_made": sum(
-                        len(h.get("tool_results", [])) for h in conversation_history
-                    ),
-                    "iterations": iteration + 1,
-                    "conversation_history": conversation_history,
-                    "success": True,
-                }
-
-            # Execute tool calls
-            self.logger.info(f"Executing {len(tool_calls)} tool calls")
-            tool_results = await self.mcp_client.execute_tool_calls(tool_calls)
-
-            conversation_history[-1]["tool_calls"] = [
-                {"name": call.name, "parameters": call.parameters}
-                for call in tool_calls
-            ]
-            conversation_history[-1]["tool_results"] = tool_results
-
-            # Check if any tool calls failed
-            failed_calls = [
-                result for result in tool_results if not result.get("success", False)
-            ]
-            if failed_calls:
-                error_msg = (
-                    f"Tool execution failed: {[f['error'] for f in failed_calls]}"
+            try:
+                # Generate text response
+                response = await self._generate_text(
+                    current_instruction, current_input, generation_params
                 )
-                self.logger.error(error_msg)
 
+                conversation_history.append(
+                    {
+                        "iteration": iteration + 1,
+                        "instruction": current_instruction,
+                        "input": current_input,
+                        "response": response,
+                    }
+                )
+
+                # Parse tool calls from response
+                tool_calls = self.mcp_client.parse_tool_calls(response)
+
+                if not tool_calls:
+                    # No tool calls found, return final response
+                    return {
+                        "final_response": response,
+                        "tool_calls_made": sum(
+                            len(h.get("tool_results", [])) for h in conversation_history
+                        ),
+                        "iterations": iteration + 1,
+                        "conversation_history": conversation_history,
+                        "success": True,
+                    }
+
+                # Execute tool calls
+                self.logger.info(f"Executing {len(tool_calls)} tool calls")
+                tool_results = await self.mcp_client.execute_tool_calls(tool_calls)
+
+                conversation_history[-1]["tool_calls"] = [
+                    {"name": call.name, "parameters": call.parameters}
+                    for call in tool_calls
+                ]
+                conversation_history[-1]["tool_results"] = tool_results
+
+                # Check if any tool calls failed
+                failed_calls = [
+                    result
+                    for result in tool_results
+                    if not result.get("success", False)
+                ]
+
+                if failed_calls:
+                    error_msg = (
+                        f"Tool execution failed: {[f['error'] for f in failed_calls]}"
+                    )
+                    self.logger.error(error_msg)
+
+                    return {
+                        "final_response": f"I encountered errors while using tools: {error_msg}",
+                        "tool_calls_made": len(tool_calls),
+                        "iterations": iteration + 1,
+                        "conversation_history": conversation_history,
+                        "success": False,
+                        "errors": failed_calls,
+                    }
+
+                # Prepare next iteration with tool results
+                tool_results_text = self._format_tool_results(tool_results)
+                current_instruction = (
+                    f"Based on the following tool results, provide a comprehensive response:\n\n"
+                    f"{tool_results_text}\n\nOriginal request: {instruction}"
+                )
+                current_input = ""
+
+            except Exception as e:
+                self.logger.error(
+                    f"Error in generation iteration {iteration + 1}: {str(e)}"
+                )
                 return {
-                    "final_response": f"I encountered errors while using tools: {error_msg}",
-                    "tool_calls_made": len(tool_calls),
+                    "final_response": f"An error occurred during generation: {str(e)}",
+                    "tool_calls_made": 0,
                     "iterations": iteration + 1,
                     "conversation_history": conversation_history,
                     "success": False,
-                    "errors": failed_calls,
+                    "errors": [str(e)],
                 }
-
-            # Prepare next iteration with tool results
-            tool_results_text = self._format_tool_results(tool_results)
-            current_instruction = f"Based on the following tool results, provide a comprehensive response:\n\n{tool_results_text}\n\nOriginal request: {instruction}"
-            current_input = ""
 
         # Max iterations reached
         final_response = (
@@ -211,38 +311,59 @@ When you need to use a tool, format your response with the tool usage blocks as 
     async def _generate_text(
         self, instruction: str, input_text: str, generation_params: GenerationParams
     ) -> str:
-        """Generate text using the model."""
+        """
+        Generate text using the pipeline.
+
+        Args:
+            instruction: The instruction/query
+            input_text: Additional input context
+            generation_params: Generation parameters
+
+        Returns:
+            Generated response text
+        """
+        if not self.pipeline:
+            raise RuntimeError("Pipeline not initialized")
+
         prompt = self.format_prompt(instruction, input_text)
 
-        # Tokenize input
-        inputs = self.tokenizer(
-            prompt, return_tensors="pt", truncation=True, max_length=2048
-        ).to(self.model.device)
+        # Prepare generation arguments for pipeline
+        generation_args = {
+            "max_new_tokens": generation_params.max_new_tokens,
+            "temperature": generation_params.temperature,
+            "top_p": generation_params.top_p,
+            "do_sample": generation_params.do_sample,
+            "repetition_penalty": generation_params.repetition_penalty,
+            "return_full_text": False,  # Only return generated text, not the prompt
+            "pad_token_id": generation_params.pad_token_id
+            or self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
 
-        # Generate
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=generation_params.max_new_tokens,
-                temperature=generation_params.temperature,
-                top_p=generation_params.top_p,
-                top_k=generation_params.top_k,
-                do_sample=generation_params.do_sample,
-                repetition_penalty=generation_params.repetition_penalty,
-                pad_token_id=generation_params.pad_token_id
-                or self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
+        # Add top_k if specified
+        if generation_params.top_k is not None:
+            generation_args["top_k"] = generation_params.top_k
 
-        # Decode response
-        response = self.tokenizer.decode(
-            outputs[0][inputs.input_ids.shape[1] :], skip_special_tokens=True
-        ).strip()
+        try:
+            # Use pipeline for generation
+            output = self.pipeline(prompt, **generation_args)
+            response = output[0]["generated_text"].strip()
+            return response
 
-        return response
+        except Exception as e:
+            self.logger.error(f"Pipeline generation failed: {str(e)}")
+            raise
 
-    def _format_tool_results(self, tool_results: list[dict[str, Any]]) -> str:
-        """Format tool results for inclusion in next iteration."""
+    def _format_tool_results(self, tool_results: List[Dict[str, Any]]) -> str:
+        """
+        Format tool results for inclusion in next iteration.
+
+        Args:
+            tool_results: List of tool execution results
+
+        Returns:
+            Formatted tool results string
+        """
         formatted_results = []
 
         for result in tool_results:
@@ -256,283 +377,134 @@ When you need to use a tool, format your response with the tool usage blocks as 
 
         return "\n".join(formatted_results)
 
-    async def _batch_generate(
+    async def batch_generate_async(
         self,
-        instructions: list[str],
-        input_texts: list[str] = None,
+        instructions: List[str],
+        input_texts: Optional[List[str]] = None,
         generation_params: Optional[GenerationParams] = None,
-    ) -> list[dict[str, Any]]:
-        """Generate responses for multiple instructions."""
+        max_tool_iterations: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate responses for multiple instructions asynchronously.
 
+        Args:
+            instructions: List of instructions/queries
+            input_texts: Optional list of input texts
+            generation_params: Generation parameters
+            max_tool_iterations: Maximum tool iterations per request
+
+        Returns:
+            List of response dictionaries
+        """
         if input_texts is None:
             input_texts = [""] * len(instructions)
 
         if len(instructions) != len(input_texts):
             raise ValueError("Instructions and input_texts must have the same length")
 
-        # For simplicity, process sequentially
-        # In production, you might want to implement true batching
+        # Process sequentially for now
+        # In production, you might want to implement true parallel processing
         results = []
-        for instruction, input_text in zip(instructions, input_texts):
-            result = await self.generate_response(
-                instruction, input_text, generation_params
-            )
-            results.append(result)
+        for i, (instruction, input_text) in enumerate(zip(instructions, input_texts)):
+            self.logger.info(f"Processing batch item {i + 1}/{len(instructions)}")
+            try:
+                result = await self.generate_response(
+                    instruction, input_text, generation_params, max_tool_iterations
+                )
+                results.append(result)
+            except Exception as e:
+                self.logger.error(f"Batch item {i + 1} failed: {str(e)}")
+                results.append(
+                    {
+                        "final_response": f"Batch processing failed: {str(e)}",
+                        "tool_calls_made": 0,
+                        "iterations": 0,
+                        "conversation_history": [],
+                        "success": False,
+                        "errors": [str(e)],
+                    }
+                )
 
         return results
 
-    # Synchronous wrapper for batch inference generation.
-    # May be quite slow.
     def batch_generate(
         self,
-        instructions: list[str],
-        input_texts: list[str] = None,
+        instructions: List[str],
+        input_texts: Optional[List[str]] = None,
         generation_params: Optional[GenerationParams] = None,
-    ) -> list[dict[str, Any]]:
+        max_tool_iterations: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """
+        Synchronous wrapper for batch generation.
+
+        Args:
+            instructions: List of instructions/queries
+            input_texts: Optional list of input texts
+            generation_params: Generation parameters
+            max_tool_iterations: Maximum tool iterations per request
+
+        Returns:
+            List of response dictionaries
+        """
         return asyncio.run(
-            self._batch_generate(instructions, input_texts, generation_params)
+            self.batch_generate_async(
+                instructions, input_texts, generation_params, max_tool_iterations
+            )
         )
-
-    def get_model_info(self) -> dict[str, Any]:
-        """Get information about the loaded model."""
-        return {
-            "base_model": self.base_model_path,
-            "adapter_path": self.adapter_path,
-            "device": str(self.model.device) if self.model else None,
-            "model_dtype": str(self.model.dtype) if self.model else None,
-            "vocab_size": len(self.tokenizer) if self.tokenizer else None,
-            "available_tools": list(self.mcp_client.available_tools.keys()),
-        }
-
-
-class ModelHandler:
-    """
-    A handler class for the Microsoft Phi-3 Mini-4K-Instruct model.
-
-    This class provides an easy-to-use interface for loading the model,
-    formatting chat conversations, and generating responses.
-    """
-
-    def __init__(
-        self,
-        model_name: str = "microsoft/Phi-3-mini-4k-instruct",
-        device_map: str = "cuda",
-        torch_dtype: str = "auto",
-        trust_remote_code: bool = True,
-        attn_implementation: Optional[str] = None,
-        random_seed: int = 0,
-    ):
-        """
-        Initialize model handler.
-
-        Args:
-            model_name: The model name/path to load
-            device_map: Device mapping for model placement
-            torch_dtype: Torch data type for model weights
-            trust_remote_code: Whether to trust remote code execution
-            attn_implementation: Attention implementation ("flash_attention_2" for flash attention)
-            random_seed: Random seed for reproducibility
-        """
-        self.model_name = model_name
-        self.device_map = device_map
-        self.torch_dtype = torch_dtype
-        self.trust_remote_code = trust_remote_code
-        self.attn_implementation = attn_implementation
-
-        # Set random seed for reproducibility
-        torch.random.manual_seed(random_seed)
-
-        # Initialize model and tokenizer
-        self.model = None
-        self.tokenizer = None
-        self.pipeline = None
-
-        # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
-
-        # Load model and tokenizer
-        self._load_model()
-
-    def _load_model(self) -> None:
-        """Load the model, tokenizer, and initialize the pipeline."""
-        try:
-            self.logger.info(f"Loading model: {self.model_name}")
-
-            # Prepare model loading arguments
-            model_args = {
-                "device_map": self.device_map,
-                "torch_dtype": self.torch_dtype,
-                "trust_remote_code": self.trust_remote_code,
-            }
-
-            # Add flash attention if specified
-            if self.attn_implementation:
-                model_args["attn_implementation"] = self.attn_implementation
-
-            # Load model and tokenizer
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_name, **model_args
-            )
-
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-
-            # Initialize pipeline
-            self.pipeline = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-            )
-
-            self.logger.info("Model loaded successfully")
-
-        except Exception as e:
-            self.logger.error(f"Failed to load model: {str(e)}")
-            raise
-
-    @staticmethod
-    def format_chat_prompt(
-        system_message: str,
-        user_message: str,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-    ) -> str:
-        """
-        Format a chat prompt using Phi-3's chat format.
-
-        Args:
-            system_message: The system prompt
-            user_message: The user's message
-            conversation_history: Optional conversation history as list of dicts
-                                with 'role' and 'content' keys
-
-        Returns:
-            Formatted chat prompt string
-        """
-        prompt = f"<|system|>\n{system_message}<|end|>\n"
-
-        # Add conversation history if provided
-        if conversation_history:
-            for message in conversation_history:
-                role = message.get("role", "")
-                content = message.get("content", "")
-
-                if role == "user":
-                    prompt += f"<|user|>\n{content}<|end|>\n"
-                elif role == "assistant":
-                    prompt += f"<|assistant|>\n{content}<|end|>\n"
-
-        # Add current user message
-        prompt += f"<|user|>\n{user_message}<|end|>\n<|assistant|>\n"
-
-        return prompt
-
-    def generate_response(
-        self,
-        messages: List[Dict[str, str]],
-        max_new_tokens: int = 500,
-        temperature: float = 0.0,
-        do_sample: bool = False,
-        return_full_text: bool = False,
-        **kwargs,
-    ) -> str:
-        """
-        Generate a response using the chat format.
-
-        Args:
-            messages: List of message dictionaries with 'role' and 'content' keys
-            max_new_tokens: Maximum number of new tokens to generate
-            temperature: Sampling temperature
-            do_sample: Whether to use sampling
-            return_full_text: Whether to return the full text including input
-            **kwargs: Additional generation arguments
-
-        Returns:
-            Generated response text
-        """
-        if not self.pipeline:
-            raise RuntimeError("Model pipeline not initialized")
-
-        # Prepare generation arguments
-        generation_args = {
-            "max_new_tokens": max_new_tokens,
-            "return_full_text": return_full_text,
-            "temperature": temperature,
-            "do_sample": do_sample,
-            **kwargs,
-        }
-
-        try:
-            # Generate response
-            output = self.pipeline(messages, **generation_args)
-            return output[0]["generated_text"]
-
-        except Exception as e:
-            self.logger.error(f"Generation failed: {str(e)}")
-            raise
-
-    def chat(
-        self,
-        user_message: str,
-        system_message: str = "You are a helpful AI assistant.",
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-        **generation_kwargs,
-    ) -> str:
-        """
-        Simple chat interface using string inputs.
-
-        Args:
-            user_message: The user's message
-            system_message: The system prompt
-            conversation_history: Optional conversation history
-            **generation_kwargs: Additional generation arguments
-
-        Returns:
-            Generated response text
-        """
-        # Build messages list
-        messages = [{"role": "system", "content": system_message}]
-
-        # Add conversation history
-        if conversation_history:
-            messages.extend(conversation_history)
-
-        # Add current user message
-        messages.append({"role": "user", "content": user_message})
-
-        return self.generate_response(messages, **generation_kwargs)
 
     def get_model_info(self) -> Dict[str, Any]:
         """
-        Get information about the loaded model.
+        Get comprehensive information about the loaded model.
 
         Returns:
             Dictionary containing model information
         """
         info = {
-            "model_name": self.model_name,
-            "vocab_size": getattr(self.tokenizer, "vocab_size", None),
-            "device_map": self.device_map,
+            "base_model_path": self.base_model_path,
+            "adapter_path": self.adapter_path,
+            "device": str(self.model.device) if self.model else None,
+            "model_dtype": str(self.model.dtype) if self.model else None,
             "torch_dtype": str(self.torch_dtype),
+            "vocab_size": len(self.tokenizer) if self.tokenizer else None,
+            "pad_token_id": self.tokenizer.pad_token_id if self.tokenizer else None,
+            "eos_token_id": self.tokenizer.eos_token_id if self.tokenizer else None,
             "model_loaded": self.model is not None,
             "tokenizer_loaded": self.tokenizer is not None,
             "pipeline_loaded": self.pipeline is not None,
+            "padding_side": self.padding_side,
         }
 
-        if hasattr(self.model, "config"):
-            info["model_config"] = {
-                "hidden_size": getattr(self.model.config, "hidden_size", None),
-                "num_attention_heads": getattr(
-                    self.model.config, "num_attention_heads", None
-                ),
-                "num_hidden_layers": getattr(
-                    self.model.config, "num_hidden_layers", None
-                ),
-                "max_position_embeddings": getattr(
-                    self.model.config, "max_position_embeddings", None
-                ),
-            }
+        # Add available tools if MCP client is available
+        try:
+            info["available_tools"] = list(self.mcp_client.available_tools.keys())
+            info["tools_count"] = len(self.mcp_client.available_tools)
+        except Exception as e:
+            self.logger.warning(f"Could not get available tools: {e}")
+            info["available_tools"] = []
+            info["tools_count"] = 0
+
+        # Add model config if available
+        if self.model and hasattr(self.model, "config"):
+            try:
+                config = self.model.config
+                info["model_config"] = {
+                    "hidden_size": getattr(config, "hidden_size", None),
+                    "num_attention_heads": getattr(config, "num_attention_heads", None),
+                    "num_hidden_layers": getattr(config, "num_hidden_layers", None),
+                    "max_position_embeddings": getattr(
+                        config, "max_position_embeddings", None
+                    ),
+                    "model_type": getattr(config, "model_type", None),
+                }
+            except Exception as e:
+                self.logger.warning(f"Could not get model config: {e}")
 
         return info
 
     def __repr__(self) -> str:
-        return f"ModelHandler(model_name='{self.model_name}', device_map='{self.device_map}')"
+        return (
+            f"AgentModelHandler("
+            f"base_model='{self.base_model_path}', "
+            f"adapter='{self.adapter_path}', "
+            f"device='{self.device}')"
+        )
