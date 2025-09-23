@@ -4,14 +4,14 @@ Model handler for fine-tuned agent inference.
 
 import logging
 import asyncio
-from typing import List, Dict, Optional, Any
+from typing import Optional, Any
 from dataclasses import dataclass
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
 from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
 
-from .mcp_client import MCPClient, ToolCall
+from mcp_client import MCPClient
 
 
 @dataclass
@@ -39,11 +39,11 @@ class AgentModelHandler:
         self,
         base_model_path: str,
         adapter_path: str,
-        mcp_client,  # MCPClient type hint removed to avoid import issues
+        mcp_client: MCPClient,
         device: str = "auto",
         torch_dtype: str = "auto",
         trust_remote_code: bool = True,
-        random_seed: int = 0,
+        random_seed: int = 42,
         padding_side: str = "left",
     ) -> None:
         """
@@ -179,7 +179,7 @@ When you need to use a tool, format your response with the tool usage blocks as 
         input_text: str = "",
         generation_params: Optional[GenerationParams] = None,
         max_tool_iterations: int = 3,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate response with tool usage capability.
 
@@ -190,7 +190,7 @@ When you need to use a tool, format your response with the tool usage blocks as 
             max_tool_iterations: Maximum number of tool usage iterations
 
         Returns:
-            Dictionary containing the response and metadata
+            dictionary containing the response and metadata
         """
         if not self.model or not self.tokenizer or not self.pipeline:
             raise RuntimeError("Model components not properly initialized")
@@ -354,12 +354,12 @@ When you need to use a tool, format your response with the tool usage blocks as 
             self.logger.error(f"Pipeline generation failed: {str(e)}")
             raise
 
-    def _format_tool_results(self, tool_results: List[Dict[str, Any]]) -> str:
+    def _format_tool_results(self, tool_results: list[dict[str, Any]]) -> str:
         """
         Format tool results for inclusion in next iteration.
 
         Args:
-            tool_results: List of tool execution results
+            tool_results: list of tool execution results
 
         Returns:
             Formatted tool results string
@@ -379,22 +379,22 @@ When you need to use a tool, format your response with the tool usage blocks as 
 
     async def batch_generate_async(
         self,
-        instructions: List[str],
-        input_texts: Optional[List[str]] = None,
+        instructions: list[str],
+        input_texts: Optional[list[str]] = None,
         generation_params: Optional[GenerationParams] = None,
         max_tool_iterations: int = 3,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Generate responses for multiple instructions asynchronously.
 
         Args:
-            instructions: List of instructions/queries
+            instructions: list of instructions/queries
             input_texts: Optional list of input texts
             generation_params: Generation parameters
             max_tool_iterations: Maximum tool iterations per request
 
         Returns:
-            List of response dictionaries
+            list of response dictionaries
         """
         if input_texts is None:
             input_texts = [""] * len(instructions)
@@ -429,22 +429,22 @@ When you need to use a tool, format your response with the tool usage blocks as 
 
     def batch_generate(
         self,
-        instructions: List[str],
-        input_texts: Optional[List[str]] = None,
+        instructions: list[str],
+        input_texts: Optional[list[str]] = None,
         generation_params: Optional[GenerationParams] = None,
         max_tool_iterations: int = 3,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Synchronous wrapper for batch generation.
 
         Args:
-            instructions: List of instructions/queries
+            instructions: list of instructions/queries
             input_texts: Optional list of input texts
             generation_params: Generation parameters
             max_tool_iterations: Maximum tool iterations per request
 
         Returns:
-            List of response dictionaries
+            list of response dictionaries
         """
         return asyncio.run(
             self.batch_generate_async(
@@ -452,12 +452,12 @@ When you need to use a tool, format your response with the tool usage blocks as 
             )
         )
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """
         Get comprehensive information about the loaded model.
 
         Returns:
-            Dictionary containing model information
+            dictionary containing model information
         """
         info = {
             "base_model_path": self.base_model_path,

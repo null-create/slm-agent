@@ -4,10 +4,10 @@ Fine-tuning trainer with LoRA for agentic use cases.
 
 import torch
 import yaml
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 from pathlib import Path
 from dataclasses import dataclass
-from logging import Logger
+import logging
 
 from transformers import (
     AutoModelForCausalLM,
@@ -21,7 +21,9 @@ from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_tr
 from datasets import Dataset, load_dataset
 import wandb
 
-log = Logger(__file__)
+# Set up logger
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__file__)
 
 
 @dataclass
@@ -44,7 +46,7 @@ class AgentTrainer:
         self.model = None
         self.trainer = None
 
-    def _load_config(self) -> Dict[str, Any]:
+    def _load_config(self) -> dict[str, Any]:
         """Load training configuration from YAML file."""
         with open(self.config_path, "r") as f:
             return yaml.safe_load(f)

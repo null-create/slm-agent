@@ -46,13 +46,13 @@ class WebSearchOutput(BaseModel):
 class SearchBackend:
     """Abstract backend interface for web search. Implement `search` for a provider."""
 
-    def search_text(self, query: str, limit: int = 5) -> list[WebSearchResultItem]:
+    def search_text(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         raise NotImplementedError
 
 
 class DDGSBackend(SearchBackend):
     def __init__(self):
-        self.search_engine = DDGS(verify=False)
+        self.search_engine = DDGS(verify=False, timeout=3)
 
     def search_text(self, query: str, limit: int) -> list[dict[str, Any]]:
         try:

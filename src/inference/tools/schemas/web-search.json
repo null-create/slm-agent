@@ -1,0 +1,11 @@
+{
+  "server": "web_search",
+  "endpoint": "/search",
+  "description": "Perform a web search and return results",
+  "parameters": {
+    "query": {
+      "type": "string",
+      "required": true
+    }
+  }
+}

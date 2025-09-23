@@ -5,12 +5,10 @@ Run with:
 PYTHONPATH=. python scripts/inference_demo --model-path /home/jay/repos/slm-agent/src/inference/model/phi-3.5-mini-base
 """
 
-import asyncio
 import sys
+import asyncio
 import argparse
-import json
 from pathlib import Path
-from typing import List, Dict, Any
 
 # Add src to path
 sys.path.append(str(Path(__file__).parent.parent / "src"))

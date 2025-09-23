@@ -37,29 +37,6 @@ class FileChunk(BaseModel):
 # ---------- Tool implementations ----------
 
 
-def make_file_read_tool() -> Tool:
-    """Read the whole file at once."""
-
-    def handler(invocation: dict) -> dict:
-        payload = FileReadInput.model_validate(invocation.get("input", invocation))
-        p = os.path.expanduser(payload.path)
-        with open(p, "r", encoding=payload.encoding) as f:
-            data = f.read()
-        return FileReadOutput(path=p, content=data).model_dump()
-
-    return Tool(
-        id="file_read",
-        name="File Read (non-streaming)",
-        description="Reads the entire contents of a text file at once.",
-        input_schema=schema.from_pydantic(FileReadInput),
-        output_schema=schema.from_pydantic(FileReadOutput),
-        handler=handler,
-    )
-
-
-# --- Streaming version ---
-
-
 def stream_file_chunks(
     path: str, encoding: str = "utf-8", chunk_size: int = 4096
 ) -> Generator[FileChunk, None, None]:
@@ -76,13 +53,13 @@ def stream_file_chunks(
             idx += 1
 
 
-def make_file_read_stream_tool() -> Tool:
+def make_file_read_tool() -> Tool:
     """Return a Tool that streams a file using a generator."""
 
     def handler(invocation: dict) -> Generator[dict[str, Any], Any, None]:
         payload = FileReadInput.model_validate(invocation.get("input", invocation))
-        for part in stream_file_chunks(payload.path, payload.encoding):
-            yield part.model_dump()
+        for file_chunk in stream_file_chunks(payload.path, payload.encoding):
+            yield file_chunk.model_dump()
 
     return Tool(
         id="file_read_stream",
@@ -102,7 +79,7 @@ def make_file_read_stream_tool() -> Tool:
 #     mcp = FastMCP(
 #         name="File Reader MCP",
 #         instructions="Provides tools for reading local files (whole or streaming).",
-#         tools=[make_file_read_tool(), make_file_read_stream_tool()],
+#         tools=[make_file_read_tool()],
 #     )
 #     mcp.serve(host=host, port=port)
 
