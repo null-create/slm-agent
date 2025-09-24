@@ -5,9 +5,6 @@ import logging
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__file__)
-
 from .model_config import ModelConfig
 
 
@@ -38,7 +35,7 @@ def download_base_model() -> None:
         attn_implementation="eager",
     )
     model.save_pretrained(model_dir)
-    print(f"Base model saved to: {model_dir}")
+    print(f"✓ Base model saved to: {model_dir}")
 
     # Save model-info.json
     print(f"Saving model meta data to {model_info}")
