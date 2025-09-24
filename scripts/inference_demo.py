@@ -15,17 +15,21 @@ sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from inference.model_handler import AgentModelHandler, GenerationParams
 from inference.mcp_client import MockMCPClient, MCPServer, MCPClient
+from inference.model_config import ModelConfig
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PHI-3.5 Agent Inference Demo")
     parser.add_argument(
-        "--model-path", type=str, required=True, help="Path to the fine-tuned model"
+        "--model-path",
+        type=str,
+        default=ModelConfig.MODEL_DIR,
+        help="Path to the fine-tuned model",
     )
     parser.add_argument(
         "--base-model",
         type=str,
-        default="microsoft/Phi-3.5-mini-instruct",
+        default=ModelConfig.MODEL_NAME,
         help="Base model name or path",
     )
     parser.add_argument(

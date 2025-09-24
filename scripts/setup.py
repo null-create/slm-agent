@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from src.inference.base_model import download_base_model
+from src.inference.model_config import ModelConfig
 
 
 def run_command(command: str, cwd: str = None, check: bool = True) -> str:
@@ -70,25 +71,6 @@ def install_requirements() -> None:
     # Install requirements
     run_command(f"{sys.executable} -m pip install --upgrade pip")
     run_command(f"{sys.executable} -m pip install -r requirements.txt")
-
-
-def setup_directories() -> None:
-    """Create necessary directories."""
-    print("Setting up project directories...")
-
-    directories = [
-        "data/raw",
-        "data/processed",
-        "data/evaluation",
-        "models",
-        "results",
-        "logs",
-        "evaluation_results",
-    ]
-
-    for directory in directories:
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        print(f"✓ Created directory: {directory}")
 
 
 def setup_wandb() -> None:

@@ -11,7 +11,7 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
 
-from mcp_client import MCPClient
+from .mcp_client import MCPClient
 
 
 @dataclass
@@ -45,6 +45,7 @@ class AgentModelHandler:
         trust_remote_code: bool = True,
         random_seed: int = 42,
         padding_side: str = "left",
+        attn_implementation: str = "eager",
     ) -> None:
         """
         Initialize the agent model handler.
@@ -66,6 +67,7 @@ class AgentModelHandler:
         self.torch_dtype = torch_dtype
         self.trust_remote_code = trust_remote_code
         self.padding_side = padding_side
+        self.attn_implementation = attn_implementation
 
         # Set random seed for reproducibility
         torch.random.manual_seed(random_seed)
@@ -103,9 +105,10 @@ class AgentModelHandler:
 
             # Prepare model loading arguments
             model_args = {
-                "torch_dtype": self.torch_dtype,
+                "dtype": self.torch_dtype,
                 "device_map": self.device,
                 "trust_remote_code": self.trust_remote_code,
+                "attn_implementation": self.attn_implementation,
             }
 
             # Load base model
