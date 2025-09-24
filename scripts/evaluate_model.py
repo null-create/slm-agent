@@ -82,7 +82,7 @@ async def main() -> None:
         print("Loading model...")
         mcp_client = MockMCPClient()
         model_handler = AgentModelHandler(
-            base_model_path=args.base_model,
+            base_model_name=args.base_model,
             adapter_path=args.model_path,
             mcp_client=mcp_client,
         )

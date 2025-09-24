@@ -100,7 +100,7 @@ def validate_base_model() -> bool:
     try:
         from transformers import AutoTokenizer
 
-        model_name = "microsoft/Phi-3.5-mini-instruct"
+        model_name = ModelConfig.MODEL_NAME
         print(f"Testing access to {model_name}...")
 
         tokenizer = AutoTokenizer.from_pretrained(

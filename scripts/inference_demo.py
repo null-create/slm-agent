@@ -171,9 +171,7 @@ async def benchmark_performance(
         print(f"Total Scenarios Tested: {len(times)}")
 
 
-def setup_model_handler(
-    model_path: str, base_model: str = "microsoft/Phi-3.5-mini-instruct"
-) -> AgentModelHandler:
+def setup_model_handler(model_path: str, base_model: str) -> AgentModelHandler:
     """Setup the model handler with MCP client."""
     print("Initializing model and MCP client...")
 
@@ -182,7 +180,7 @@ def setup_model_handler(
 
     # Initialize model handler
     model_handler = AgentModelHandler(
-        base_model_path=base_model, adapter_path=model_path, mcp_client=mcp_client
+        base_model_name=base_model, adapter_path=model_path, mcp_client=mcp_client
     )
 
     print("Model loaded successfully!")

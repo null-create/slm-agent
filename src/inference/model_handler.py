@@ -37,7 +37,7 @@ class AgentModelHandler:
 
     def __init__(
         self,
-        base_model_path: str,
+        base_model_name: str,
         adapter_path: str,
         mcp_client: MCPClient,
         device: str = "auto",
@@ -60,7 +60,7 @@ class AgentModelHandler:
             random_seed: Random seed for reproducibility
             padding_side: Padding side for tokenizer
         """
-        self.base_model_path = base_model_path
+        self.base_model_name = base_model_name
         self.adapter_path = adapter_path
         self.mcp_client = mcp_client
         self.device = device
@@ -88,11 +88,11 @@ class AgentModelHandler:
     def _load_model(self) -> None:
         """Load the fine-tuned model and tokenizer."""
         try:
-            self.logger.info(f"Loading tokenizer from: {self.base_model_path}")
+            self.logger.info(f"Loading tokenizer from: {self.base_model_name}")
 
             # Load tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.base_model_path,
+                self.base_model_name,
                 trust_remote_code=self.trust_remote_code,
                 padding_side=self.padding_side,
             )
@@ -101,7 +101,7 @@ class AgentModelHandler:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
-            self.logger.info(f"Loading base model from: {self.base_model_path}")
+            self.logger.info(f"Loading base model from: {self.base_model_name}")
 
             # Prepare model loading arguments
             model_args = {
@@ -113,13 +113,13 @@ class AgentModelHandler:
 
             # Load base model
             base_model = AutoModelForCausalLM.from_pretrained(
-                self.base_model_path, **model_args
+                self.base_model_name, **model_args
             )
 
-            self.logger.info(f"Loading LoRA adapter from: {self.adapter_path}")
+            self.logger.info(f"Loading LoRA adapter from: {self.base_model_name}")
 
             # Load LoRA adapter
-            self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
+            self.model = PeftModel.from_pretrained(base_model, self.base_model_name)
             self.model.eval()
 
             # Set up generation configuration with better defaults
@@ -463,7 +463,7 @@ When you need to use a tool, format your response with the tool usage blocks as 
             dictionary containing model information
         """
         info = {
-            "base_model_path": self.base_model_path,
+            "base_model_path": self.base_model_name,
             "adapter_path": self.adapter_path,
             "device": str(self.model.device) if self.model else None,
             "model_dtype": str(self.model.dtype) if self.model else None,
@@ -507,7 +507,7 @@ When you need to use a tool, format your response with the tool usage blocks as 
     def __repr__(self) -> str:
         return (
             f"AgentModelHandler("
-            f"base_model='{self.base_model_path}', "
+            f"base_model='{self.base_model_name}', "
             f"adapter='{self.adapter_path}', "
             f"device='{self.device}')"
         )
