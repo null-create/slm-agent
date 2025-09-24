@@ -13,8 +13,8 @@ from pathlib import Path
 # Add src to path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
-from inference.model_handler import AgentModelHandler, GenerationParams
-from inference.mcp_client import MockMCPClient, MCPServer, MCPClient
+from inference.model_handler import AgentModelHandler
+from inference.mcp_client import MockMCPClient
 from inference.model_config import ModelConfig
 
 
