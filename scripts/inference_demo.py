@@ -2,7 +2,7 @@
 Demo script for Agent inference with MCP tools.
 
 Run with:
-PYTHONPATH=. python scripts/inference_demo --model-path /home/jay/repos/slm-agent/src/inference/model/phi-3.5-mini-base
+PYTHONPATH=. python scripts/inference_demo
 """
 
 import sys
