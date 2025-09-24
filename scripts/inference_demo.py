@@ -56,31 +56,27 @@ async def demo_single_tool_usage():
 
     scenarios = [
         "Search for the latest AI research papers",
-        "Calculate the compound interest on $10,000 at 5% for 10 years",
-        "What's the weather like in San Francisco today?",
         "Read the configuration file at /etc/app/config.json",
     ]
 
     return scenarios
 
 
-async def demo_multi_step_tasks():
+async def demo_multi_step_tasks() -> list[str]:
     """Demo complex multi-step task scenarios."""
     print("\n" + "=" * 60)
     print("DEMO: Multi-Step Tasks")
     print("=" * 60)
 
     scenarios = [
-        "Research the weather in Tokyo and calculate travel costs from New York",
-        "Find information about electric cars and calculate potential savings",
-        "Check the weather forecast and recommend clothing for a outdoor event",
+        "Find information about electric cars ",
         "Read sales data and search for market analysis reports",
     ]
 
     return scenarios
 
 
-async def interactive_demo(model_handler: AgentModelHandler):
+async def interactive_demo(model_handler: AgentModelHandler) -> None:
     """Interactive demo allowing user to input custom instructions."""
     print("\n" + "=" * 60)
     print("INTERACTIVE DEMO")
@@ -133,19 +129,13 @@ async def interactive_demo(model_handler: AgentModelHandler):
 
 async def benchmark_performance(
     model_handler: AgentModelHandler, num_samples: int = 10
-):
+) -> None:
     """Benchmark model performance on various scenarios."""
     print("\n" + "=" * 60)
     print("PERFORMANCE BENCHMARK")
     print("=" * 60)
 
-    test_scenarios = [
-        "Search for Python tutorial",
-        "Calculate 15% of 250",
-        "Weather in London",
-        "Search for restaurant reviews and calculate average rating",
-        "Check weather and recommend activities based on conditions",
-    ]
+    test_scenarios = ["Search for Python tutorial", "Search for restaurant reviews"]
 
     times = []
     successes = 0
@@ -201,7 +191,7 @@ def setup_model_handler(
     return model_handler
 
 
-async def main():
+async def main() -> None:
     """Main demo function."""
     args = parse_args()
 
