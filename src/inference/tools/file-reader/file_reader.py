@@ -1,9 +1,7 @@
 """
 file_reader.py
-A pair of MCP tools for reading files: one non-streaming, one streaming.
 
-Requirements:
-    pip install modelcontextprotocol fastapi uvicorn pydantic
+Streaming file reader tool that can be served by an MCP server
 """
 
 from __future__ import annotations
@@ -11,9 +9,7 @@ import os
 from typing import Generator, Any
 
 from pydantic import BaseModel, Field
-from mcp import Tool, schema
-
-# ---------- Schemas ----------
+from mcp import Tool
 
 
 class FileReadInput(BaseModel):
@@ -32,9 +28,6 @@ class FileChunk(BaseModel):
     chunk: str
     index: int
     eof: bool = False
-
-
-# ---------- Tool implementations ----------
 
 
 def stream_file_chunks(
