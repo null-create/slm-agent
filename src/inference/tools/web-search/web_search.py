@@ -10,14 +10,12 @@ from __future__ import annotations
 from typing import Any, Optional
 import logging
 
-from ddgs import DDGS, DDGSException
 from pydantic import BaseModel, Field
+from ddgs import DDGS
 from mcp import Tool
 
 logger = logging.getLogger("mcp_web_search")
 logging.basicConfig(level=logging.INFO)
-
-# ---------- Pydantic schemas for the tool ----------
 
 
 class WebSearchInput(BaseModel):
@@ -40,13 +38,13 @@ class WebSearchOutput(BaseModel):
     results: list[WebSearchResultItem]
 
 
-# ---------- Backend interface(s) ----------
-
-
 class SearchBackend:
     """Abstract backend interface for web search. Implement `search` for a provider."""
 
     def search_text(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def search_images(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         raise NotImplementedError
 
 
@@ -54,11 +52,15 @@ class DDGSBackend(SearchBackend):
     def __init__(self):
         self.search_engine = DDGS(verify=False, timeout=3)
 
-    def search_text(self, query: str, limit: int) -> list[dict[str, Any]]:
+    def search_text(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         try:
             return self.search_engine.text(query=query, max_results=limit)
-        except DDGSException as e:
-            return [{"message": "search engine failure: " + str(e)}]
+        except Exception as e:
+            return [{"message": "unexpected error occurred: " + str(e)}]
+
+    def search_images(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        try:
+            return self.search_engine.images(query, limit)
         except Exception as e:
             return [{"message": "unexpected error occurred: " + str(e)}]
 
@@ -69,25 +71,27 @@ def make_web_search_tool(backend: SearchBackend) -> Tool:
     """
 
     # Tool handler function
-    def _handler(invocation: dict) -> dict[str, Any]:
+    def _handler(input: dict) -> dict[str, Any]:
         try:
-            payload = WebSearchInput.model_validate(invocation.get("input", invocation))
+            payload = WebSearchInput(**input)
         except Exception as e:
             logger.exception("Invalid tool invocation")
             raise
 
-        query = payload.query.strip()
-        limit = payload.limit
-
         # Execute backend search
         try:
-            items = backend.search_text(query=query, limit=limit)
+            items = backend.search_text(
+                query=payload.query.strip(), limit=payload.limit
+            )
         except Exception as e:
             logger.exception("Search backend error")
             # Convert to an MCP-appropriate error response if the SDK has helpers
             raise
 
-        out = WebSearchOutput(query=query, results=items)
+        out = WebSearchOutput(
+            query=payload.query.strip(),
+            results=[WebSearchResultItem(**item) for item in items],
+        )
         # Return plain dict (MCP SDK will handle JSON serialization)
         return out.model_dump()
 
@@ -99,6 +103,5 @@ def make_web_search_tool(backend: SearchBackend) -> Tool:
         input_schema=WebSearchInput.model_dump_json(),
         output_schema=WebSearchOutput.model_dump_json(),
         handler=_handler,
-        # optional: capabilities, tags, icon, etc.
         keywords=["search", "web", "google", "bing", "query"],
     )
