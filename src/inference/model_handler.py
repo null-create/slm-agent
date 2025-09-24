@@ -119,7 +119,7 @@ class AgentModelHandler:
             self.logger.info(f"Loading LoRA adapter from: {self.base_model_name}")
 
             # Load LoRA adapter
-            self.model = PeftModel.from_pretrained(base_model, self.base_model_name)
+            self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
             self.model.eval()
 
             # Set up generation configuration with better defaults
