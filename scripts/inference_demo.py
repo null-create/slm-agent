@@ -179,9 +179,7 @@ def setup_model_handler(model_path: str, base_model: str) -> AgentModelHandler:
     mcp_client = MockMCPClient()
 
     # Initialize model handler
-    model_handler = AgentModelHandler(
-        base_model_name=base_model, adapter_path=model_path, mcp_client=mcp_client
-    )
+    model_handler = AgentModelHandler(base_model_name=base_model, mcp_client=mcp_client)
 
     print("Model loaded successfully!")
     print(f"Model info: {model_handler.get_model_info()}")

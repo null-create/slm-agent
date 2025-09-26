@@ -38,8 +38,8 @@ class AgentModelHandler:
     def __init__(
         self,
         base_model_name: str,
-        adapter_path: str,
         mcp_client: MCPClient,
+        adapter_path: str = None,
         device: str = "auto",
         torch_dtype: str = "auto",
         trust_remote_code: bool = True,
@@ -116,15 +116,20 @@ class AgentModelHandler:
                 self.base_model_name, **model_args
             )
 
-            self.logger.info(f"Loading LoRA adapter from: {self.base_model_name}")
+            # Load LoRA adapter for fine-tune models if available, otherwise continue with base model
+            if self.adapter_path:
+                self.logger.info(f"Loading LoRA adapter from: {self.base_model_name}")
+                self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
+            else:
+                self.logger.info("Using base model")
+                self.model = base_model
 
-            # Load LoRA adapter
-            self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
+            # Set the model to evaluation mode
             self.model.eval()
 
             # Set up generation configuration with better defaults
             self.generation_config = GenerationConfig(
-                max_new_tokens=512,
+                max_new_tokens=2048,
                 temperature=0.7,
                 top_p=0.9,
                 do_sample=True,
