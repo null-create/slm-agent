@@ -1,0 +1,30 @@
+# Core ML libraries
+torch
+transformers
+peft
+datasets
+accelerate
+huggingface_hub
+flash-attention
+sentencepiece
+
+# Training and optimization
+bitsandbytes
+scipy
+scikit-learn
+
+# Data processing
+pandas
+numpy
+tqdm
+
+# Evaluation and monitoring
+wandb
+tensorboard
+rouge-score
+sacrebleu
+
+# Utilities
+python-dotenv
+rich
+typer

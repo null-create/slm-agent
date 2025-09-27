@@ -1,0 +1,9 @@
+# MCP and tool integration
+mcp
+httpx
+pydantic
+jsonschema
+ddgs # for the web search tool
+
+# Utilities
+python-dotenv

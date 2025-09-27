@@ -1,0 +1,11 @@
+venv
+.venv
+.vscode
+.git
+.github
+.local
+__pycache__
+
+infra
+notebooks
+tests
