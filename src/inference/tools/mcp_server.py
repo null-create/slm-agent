@@ -1,3 +1,5 @@
+import os
+import json
 from pydantic import BaseModel, Field
 from typing import Any, Callable, Collection, List, Literal, Optional
 
@@ -84,6 +86,24 @@ class MCPServerConfig(BaseModel):
             auth=self.auth,
             transport_security=self.transport_security,
         )
+
+
+def load_new_server() -> FastMCP:
+    """
+    Loads server using a server.json configuration file
+    """
+    config_file = os.path.join(
+        os.path.abspath(os.path.dirname(__file__)), "server.json"
+    )
+    if not os.path.exists(config_file):
+        raise FileNotFoundError("server.json file not found")
+
+    with open(config_file, "r") as f:
+        configs: dict = json.load(f)
+
+    configs["server"]["tools"] = [make_file_read_tool(), make_web_search_tool()]
+
+    return FastMCP(**configs["server"])
 
 
 if __name__ == "__main__":
