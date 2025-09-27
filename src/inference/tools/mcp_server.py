@@ -1,127 +1,91 @@
-import base64
-import mimetypes
-from pathlib import Path
-from typing import Optional, Generator
+from pydantic import BaseModel, Field
+from typing import Any, Callable, Collection, List, Literal, Optional
 
-from pydantic import BaseModel
+from mcp.types import Tool
 from mcp.server.fastmcp import FastMCP
 
-from server_config import MCPServerConfig
+from file_reader.file_reader import make_file_read_tool
+from web_search.web_search import make_web_search_tool
 
 
 class MCPServerConfig(BaseModel):
-    """Configuration for an MCP server."""
-
-    name: str
-    base_url: str
-    auth_token: Optional[str] = None
-    timeout: int = 30
-
-
-# Initialize a FastMCP server using config wrapper class
-mcp_config = MCPServerConfig()
-mcp: FastMCP = mcp_config.new_server()
-
-
-@mcp.tool()
-def file_reader_non_streaming(file_path: str, max_bytes: int = 5 * 1024 * 1024) -> str:
     """
-    Read a file and return its contents.
-
-    - For text files → return text as a string.
-    - For binary files (png, jpg, so, etc.) → return base64 data URI.
-    - Raises FileNotFoundError if the path doesn't exist.
-    - Limits read to `max_bytes` bytes (default: 5 MB).
+    Configuration for creating a FastMCP server.
+    Mirrors the FastMCP init signature with validation & defaults.
     """
-    p = Path(file_path)
 
-    if not p.exists() or not p.is_file():
-        raise FileNotFoundError(f"No such file: {file_path}")
+    # Core
+    name: Optional[str] = Field(default=None, description="Server name")
+    instructions: Optional[str] = Field(
+        default=None, description="Human-readable instructions for the server"
+    )
 
-    # Guess MIME type from extension
-    mime_type, _ = mimetypes.guess_type(p.name)
-    mime_type = mime_type or "application/octet-stream"
+    # Auth / security
+    auth_server_provider: Optional[Callable[...]] = None
+    token_verifier: Optional[Any] = None
+    auth: Optional[Any] = None
+    transport_security: Optional[Any] = None
 
-    # Decide whether to treat as text or binary
-    is_text = False
-    if mime_type.startswith("text/"):
-        is_text = True
-    elif mime_type in {"application/json", "application/xml"}:
-        is_text = True
+    # Tools / events
+    tools: Optional[List[Tool]] = [make_file_read_tool(), make_web_search_tool()]
+    event_store: Optional[Any] = None
 
-    if is_text:
-        with p.open("r", encoding="utf-8", errors="replace") as f:
-            return f.read(max_bytes)
-    else:
-        with p.open("rb") as f:
-            raw = f.read(max_bytes)
-        b64 = base64.b64encode(raw).decode("ascii")
-        return f"data:{mime_type};base64,{b64}"
+    # Logging / debug
+    debug: bool = False
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
+    # Network / transport
+    host: str = "127.0.0.1"
+    port: int = 8000
+    mount_path: str = "/"
+    sse_path: str = "/sse"
+    message_path: str = "/messages/"
+    streamable_http_path: str = "/mcp"
 
-@mcp.tool()
-def file_reader(file_path: str, chunk_size: int = 65536) -> Generator[str, None, None]:
-    """
-    Stream a file's contents in chunks.
+    # Output / mode
+    json_response: bool = False
+    stateless_http: bool = False
 
-    - For text → yields UTF-8 text chunks.
-    - For binary → yields base64 data URI *header* once, then base64 payload chunks.
-    - `chunk_size` controls how many bytes per read (default: 64 KiB).
-    """
-    p = Path(file_path)
-    if not p.exists() or not p.is_file():
-        raise FileNotFoundError(f"No such file: {file_path}")
+    # Warnings
+    warn_on_duplicate_resources: bool = True
+    warn_on_duplicate_tools: bool = True
+    warn_on_duplicate_prompts: bool = True
 
-    mime_type, _ = mimetypes.guess_type(p.name)
-    mime_type = mime_type or "application/octet-stream"
+    # Misc
+    dependencies: Collection[str] = ()
+    lifespan: Optional[Any] = None  # AbstractAsyncContextManager
 
-    is_text = False
-    if mime_type.startswith("text/") or mime_type in {
-        "application/json",
-        "application/xml",
-    }:
-        is_text = True
-
-    if is_text:
-        # Stream text in chunks
-        with p.open("r", encoding="utf-8", errors="replace") as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                yield chunk
-    else:
-        # Stream binary: yield data URI header first, then base64 chunks
-        yield f"data:{mime_type};base64,"
-        with p.open("rb") as f:
-            while True:
-                raw: bytes = f.read(chunk_size)
-                if not raw:
-                    break
-                yield base64.b64encode(raw).decode("ascii")
-
-
-# Add a resource
-@mcp.resource("greeting://{name}")
-def get_greeting(name: str) -> str:
-    """Return a greeting for a given name."""
-    return f"Hello, {name}!"
-
-
-# Add a prompt template
-@mcp.prompt()
-def greet_user(name: str, style: str = "friendly") -> str:
-    """
-    Generate a greeting prompt.
-    style can be "friendly", "formal", etc.
-    """
-    if style == "formal":
-        return f"Please compose a formal greeting to {name}."
-    else:
-        return f"Please compose a warm, friendly greeting to {name}."
+    def new_server(self) -> FastMCP:
+        """
+        Instantiate a FastMCP server using this config.
+        """
+        return FastMCP(
+            name=self.name,
+            instructions=self.instructions,
+            auth_server_provider=self.auth_server_provider,
+            token_verifier=self.token_verifier,
+            event_store=self.event_store,
+            tools=self.tools,
+            debug=self.debug,
+            log_level=self.log_level,
+            host=self.host,
+            port=self.port,
+            mount_path=self.mount_path,
+            sse_path=self.sse_path,
+            message_path=self.message_path,
+            streamable_http_path=self.streamable_http_path,
+            json_response=self.json_response,
+            stateless_http=self.stateless_http,
+            warn_on_duplicate_resources=self.warn_on_duplicate_resources,
+            warn_on_duplicate_tools=self.warn_on_duplicate_tools,
+            warn_on_duplicate_prompts=self.warn_on_duplicate_prompts,
+            dependencies=self.dependencies,
+            lifespan=self.lifespan,
+            auth=self.auth,
+            transport_security=self.transport_security,
+        )
 
 
 if __name__ == "__main__":
-    # Run the server. Default transport is stdio
-    config = MCPServerConfig()
-    mcp.run()
+    mcp_server: FastMCP = MCPServerConfig().new_server()
+    mcp_server.run()

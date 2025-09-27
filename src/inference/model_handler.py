@@ -2,16 +2,26 @@
 Model handler for fine-tuned agent inference.
 """
 
+import os
+import json
 import logging
 import asyncio
-from typing import Optional, Any
+import threading
+from typing import Optional, Any, Generator, AsyncGenerator, Iterator
 from dataclasses import dataclass
 
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    GenerationConfig,
+    TextIteratorStreamer,
+    pipeline,
+)
 
 from .mcp_client import MCPClient
+from .model_config import ModelConfig
 
 
 @dataclass
@@ -42,7 +52,7 @@ class AgentModelHandler:
         adapter_path: str = None,
         device: str = "auto",
         torch_dtype: str = "auto",
-        trust_remote_code: bool = True,
+        trust_remote_code: bool = False,
         random_seed: int = 42,
         padding_side: str = "left",
         attn_implementation: str = "eager",
@@ -75,8 +85,9 @@ class AgentModelHandler:
         # Initialize components
         self.tokenizer = None
         self.model = None
-        self.generation_config = None
-        self.pipeline = None
+        self.sys_prompt: str = None
+        self.generation_config: GenerationConfig = None
+        self.pipeline: pipeline = None
 
         # Setup logging
         logging.basicConfig(level=logging.INFO)
@@ -180,6 +191,26 @@ When you need to use a tool, format your response with the tool usage blocks as 
             )
 
         return full_prompt
+
+    async def chat(self) -> None:
+        """
+        Simple chat function
+        """
+        print("Starting chat. Press 'q' to quit", end="\n")
+
+        while True:
+            user_message = input("> ")
+            if user_message in ["exit", "quit", "q"]:
+                return
+
+            response = await self.generate_response(
+                instruction="", input_text=user_message
+            )
+            if "final_response" not in response:
+                self.logger.error("no response found from model")
+                return
+
+            print(response["final_response"], end="\n")
 
     async def generate_response(
         self,
@@ -352,15 +383,106 @@ When you need to use a tool, format your response with the tool usage blocks as 
         if generation_params.top_k is not None:
             generation_args["top_k"] = generation_params.top_k
 
-        try:
-            # Use pipeline for generation
-            output = self.pipeline(prompt, **generation_args)
-            response = output[0]["generated_text"].strip()
-            return response
+        # try:
+        #     # Use pipeline for generation
+        #     output = self.pipeline(prompt, **generation_args)
+        #     response = output[0]["generated_text"].strip()
+        #     return response
 
-        except Exception as e:
-            self.logger.error(f"Pipeline generation failed: {str(e)}")
-            raise
+        # except Exception as e:
+        #     self.logger.error(f"Pipeline generation failed: {str(e)}")
+        #     raise
+
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+
+        with torch.no_grad():
+            outputs = self.model.generate(
+                inputs.input_ids,
+                max_new_tokens=generation_params.max_new_tokens,
+                do_sample=generation_params.do_sample,
+                temperature=generation_params.temperature,
+                top_p=generation_params.top_p,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+            )
+
+        generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+        # Extract only the response
+        if prompt in generated_text:
+            return generated_text[len(prompt) :].strip()
+
+        # TODO: handle parsing of generated text better. We should only return the model's text, not all
+        # the other sys prompts and <tags> and whatever else is there
+
+        return generated_text.strip()
+
+    async def streaming_chat(self) -> None:
+        """
+        Top level runner for using the streaming chat function
+        """
+        while True:
+            message = input("> ")
+            if message.lower() in ["exit", "quit", "q"]:
+                return
+
+            if not self.generation_config:
+                generation_params = GenerationConfig()
+            else:
+                generation_params = self.generation_config
+
+            async for chunk in self._generate_text_streaming(
+                message, message, generation_params
+            ):
+                print(chunk, end="", flush=True)
+            print()
+
+    async def _generate_text_streaming(
+        self, instruction: str, user_input: str, gen_configs: GenerationConfig
+    ) -> AsyncGenerator[str, None]:
+        """
+        Streaming text implementation using TextIteratorStreamer.
+
+        Args:
+            instruction: The instruction/query
+            input_text: Additional input context
+            generation_params: Generation parameters
+
+        Yields:
+            Generated response text chunks in real time
+        """
+        prompt = self.format_prompt(instruction, user_input)
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+
+        # Create streamer
+        streamer = TextIteratorStreamer(
+            self.tokenizer, skip_prompt=True, skip_special_tokens=True
+        )
+
+        # Set up generation kwargs
+        generation_kwargs = {
+            "input_ids": inputs.input_ids,
+            "max_new_tokens": gen_configs.max_new_tokens,
+            "do_sample": gen_configs.do_sample,
+            "temperature": gen_configs.temperature,
+            "top_p": gen_configs.top_p,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "streamer": streamer,
+        }
+
+        # Run generation in a separate thread
+        generation_thread = threading.Thread(
+            target=self.model.generate, kwargs=generation_kwargs
+        )
+        generation_thread.start()
+
+        # Yield tokens as they come from the streamer
+        for new_text in streamer:
+            yield new_text
+
+        # Wait for generation to complete
+        generation_thread.join()
 
     def _format_tool_results(self, tool_results: list[dict[str, Any]]) -> str:
         """
@@ -516,3 +638,22 @@ When you need to use a tool, format your response with the tool usage blocks as 
             f"adapter='{self.adapter_path}', "
             f"device='{self.device}')"
         )
+
+
+def load_model_handler(configs: ModelConfig) -> AgentModelHandler:
+    if not os.path.exists(configs.MODEL_META_DATA):
+        logging.error(
+            f"no model.json file found for: {configs.MODEL_NAME}\npath: {configs.MODEL_META_DATA}"
+        )
+        exit(1)
+
+    with open(configs.MODEL_META_DATA, "r") as f:
+        model_info: dict = json.load(f)
+
+    return AgentModelHandler(
+        base_model_name=model_info.get("model-name"),
+        mcp_client=MCPClient(servers=[]),
+        device=model_info.get("model-device", "auto"),
+        torch_dtype=model_info.get("model-dtype", "auto"),
+        adapter_path=model_info.get("model-adapter", None),
+    )

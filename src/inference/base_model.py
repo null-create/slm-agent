@@ -5,45 +5,43 @@ import logging
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .model_config import ModelConfig
-
-
-# Base model and path to model file
-model_name = ModelConfig.MODEL_NAME
-model_dir = ModelConfig.MODEL_DIR
-model_tokenizer = ModelConfig.MODEL_TOKENIZER
-model_info = os.path.join(ModelConfig.MODEL_DIR, "model.json")
+from model_config import ModelConfig
 
 
 def download_base_model() -> None:
     # Check if the model has already been downloaded
-    if os.path.exists(model_dir):
-        print(f"{model_name} has already been downloaded. Skipping...")
+    if os.path.exists(ModelConfig.MODEL_DIR):
+        print(f"{ModelConfig.MODEL_NAME} has already been downloaded. Skipping...")
         return
 
     # Download tokenizer
-    print(f"Downloading tokenizer for {model_name}...")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    tokenizer.save_pretrained(model_dir)
+    print(f"Downloading tokenizer for {ModelConfig.MODEL_NAME}...")
+    tokenizer = AutoTokenizer.from_pretrained(
+        ModelConfig.MODEL_NAME, trust_remote_code=True
+    )
+    tokenizer.save_pretrained(ModelConfig.MODEL_DIR)
 
     # Download model
-    print(f"Downloading {model_name}...")
+    print(f"Downloading {ModelConfig.MODEL_NAME}...")
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
+        ModelConfig.MODEL_NAME,
         trust_remote_code=True,
         dtype=torch.bfloat16,
         attn_implementation="eager",
     )
-    model.save_pretrained(model_dir)
-    print(f"✓ Base model saved to: {model_dir}")
+    model.save_pretrained(ModelConfig.MODEL_DIR)
+    print(f"✓ Base model saved to: {ModelConfig.MODEL_DIR}")
 
     # Save model-info.json
-    print(f"Saving model meta data to {model_info}")
-    with open(model_info, "w") as f:
+    print(f"Saving model meta data to {ModelConfig.MODEL_META_DATA}")
+    with open(ModelConfig.MODEL_META_DATA, "w") as f:
         model_info_data = {
-            "model-name": model_name,
-            "model-dir": model_dir,
-            "model-tokenizer": model_tokenizer,
+            "model-name": ModelConfig.MODEL_NAME,
+            "model-dir": ModelConfig.MODEL_DIR,
+            "model-tokenizer": ModelConfig.MODEL_TOKENIZER,
+            "model-dtype": "float16",
+            "model-adapter": None,
+            "model-device": "auto",
         }
         json.dump(obj=model_info_data, fp=f, indent=2)
 
