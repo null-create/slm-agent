@@ -170,17 +170,8 @@ def main() -> None:
     print("Agent Fine-tuning Setup")
     print("=" * 40)
 
-    # Change to project directory
-    project_root = Path(__file__).parent.parent
-    os.chdir(project_root)
-
-    # Run setup steps
-    # setup_directories()
-
     # Check GPU before installing requirements (for better error messages)
     gpu_available = check_gpu()
-
-    # install_requirements()
 
     # Download base model
     download_base_model()

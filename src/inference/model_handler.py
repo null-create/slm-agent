@@ -78,6 +78,7 @@ class AgentModelHandler:
         self.trust_remote_code = trust_remote_code
         self.padding_side = padding_side
         self.attn_implementation = attn_implementation
+        self.sys_prompt: str = None
 
         # Set random seed for reproducibility
         torch.random.manual_seed(random_seed)
@@ -149,6 +150,14 @@ class AgentModelHandler:
                 repetition_penalty=1.1,
             )
 
+            # Load the base system prompt
+            prompt_file = "sys-prompt.txt"
+            if not os.path.exists(prompt_file):
+                raise FileNotFoundError(f"{prompt_file} not found!")
+
+            with open(prompt_file, "r") as f:
+                self.sys_prompt = f.read()
+
             # Initialize pipeline for easier generation
             self.pipeline = pipeline(
                 "text-generation",
@@ -179,16 +188,10 @@ class AgentModelHandler:
             self.logger.warning(f"Failed to get tools description: {e}")
             tools_description = "No tools available."
 
-        system_prompt = f"""You are a helpful AI assistant that can use tools to complete tasks. {tools_description}
-
-When you need to use a tool, format your response with the tool usage blocks as shown above. Always explain what you're doing and provide helpful responses based on the tool results."""
-
         if input_text:
-            full_prompt = f"{system_prompt}\n\n### Instruction:\n{instruction}\n\n### Input:\n{input_text}\n\n### Response:\n"
+            full_prompt = f"{self.sys_prompt}\n\n### Instruction:\n{instruction}\n\n### Input:\n{input_text}\n\n### Response:\n"
         else:
-            full_prompt = (
-                f"{system_prompt}\n\n### Instruction:\n{instruction}\n\n### Response:\n"
-            )
+            full_prompt = f"{self.sys_prompt}\n\n### Instruction:\n{instruction}\n\n### Response:\n"
 
         return full_prompt
 
@@ -203,9 +206,7 @@ When you need to use a tool, format your response with the tool usage blocks as 
             if user_message in ["exit", "quit", "q"]:
                 return
 
-            response = await self.generate_response(
-                instruction="", input_text=user_message
-            )
+            response = await self.generate_response(instruction=user_message)
             if "final_response" not in response:
                 self.logger.error("no response found from model")
                 return
@@ -215,7 +216,7 @@ When you need to use a tool, format your response with the tool usage blocks as 
     async def generate_response(
         self,
         instruction: str,
-        input_text: str = "",
+        input_text: Optional[str] = "",
         generation_params: Optional[GenerationParams] = None,
         max_tool_iterations: int = 3,
     ) -> dict[str, Any]:
@@ -364,6 +365,9 @@ When you need to use a tool, format your response with the tool usage blocks as 
         if not self.pipeline:
             raise RuntimeError("Pipeline not initialized")
 
+        if not self.model:
+            raise RuntimeError("Model not initialized")
+
         prompt = self.format_prompt(instruction, input_text)
 
         # Prepare generation arguments for pipeline
@@ -383,39 +387,15 @@ When you need to use a tool, format your response with the tool usage blocks as 
         if generation_params.top_k is not None:
             generation_args["top_k"] = generation_params.top_k
 
-        # try:
-        #     # Use pipeline for generation
-        #     output = self.pipeline(prompt, **generation_args)
-        #     response = output[0]["generated_text"].strip()
-        #     return response
+        try:
+            # Use pipeline for generation
+            output = self.pipeline(prompt, **generation_args)
+            response = output[0]["generated_text"].strip()
+            return response
 
-        # except Exception as e:
-        #     self.logger.error(f"Pipeline generation failed: {str(e)}")
-        #     raise
-
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-
-        with torch.no_grad():
-            outputs = self.model.generate(
-                inputs.input_ids,
-                max_new_tokens=generation_params.max_new_tokens,
-                do_sample=generation_params.do_sample,
-                temperature=generation_params.temperature,
-                top_p=generation_params.top_p,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
-
-        generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-        # Extract only the response
-        if prompt in generated_text:
-            return generated_text[len(prompt) :].strip()
-
-        # TODO: handle parsing of generated text better. We should only return the model's text, not all
-        # the other sys prompts and <tags> and whatever else is there
-
-        return generated_text.strip()
+        except Exception as e:
+            self.logger.error(f"Pipeline generation failed: {str(e)}")
+            raise
 
     async def streaming_chat(self) -> None:
         """

@@ -1,6 +1,6 @@
 # Core ML libraries
 torch
-transformers
+transformers==4.50.0 # this seems to be more stable?
 peft
 datasets
 accelerate

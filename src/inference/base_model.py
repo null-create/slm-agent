@@ -1,18 +1,20 @@
 import os
 import json
-import logging
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from model_config import ModelConfig
+from .model_config import ModelConfig
 
 
 def download_base_model() -> None:
     # Check if the model has already been downloaded
-    if os.path.exists(ModelConfig.MODEL_DIR):
-        print(f"{ModelConfig.MODEL_NAME} has already been downloaded. Skipping...")
-        return
+    # if os.path.exists(ModelConfig.MODEL_DIR):
+    #     print(f"{ModelConfig.MODEL_NAME} has already been downloaded. Skipping...")
+    #     return
+
+    if not os.path.exists(ModelConfig.MODEL_ROOT):
+        os.mkdir(ModelConfig.MODEL_ROOT)
 
     # Download tokenizer
     print(f"Downloading tokenizer for {ModelConfig.MODEL_NAME}...")
@@ -24,10 +26,7 @@ def download_base_model() -> None:
     # Download model
     print(f"Downloading {ModelConfig.MODEL_NAME}...")
     model = AutoModelForCausalLM.from_pretrained(
-        ModelConfig.MODEL_NAME,
-        trust_remote_code=True,
-        dtype=torch.bfloat16,
-        attn_implementation="eager",
+        ModelConfig.MODEL_NAME, trust_remote_code=False
     )
     model.save_pretrained(ModelConfig.MODEL_DIR)
     print(f"✓ Base model saved to: {ModelConfig.MODEL_DIR}")
