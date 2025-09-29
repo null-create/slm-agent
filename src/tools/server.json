@@ -1,6 +1,7 @@
 {
   "server": {
     "name": null,
+    "version": "1.0.0",
     "instructions": null,
     "auth_server_provider": null,
     "token_verifier": null,

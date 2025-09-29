@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Optional
 import logging
 
+import httpx
 from pydantic import BaseModel, Field
 from ddgs import DDGS
 from mcp import Tool
@@ -65,43 +66,39 @@ class DDGSBackend(SearchBackend):
             return [{"message": "unexpected error occurred: " + str(e)}]
 
 
-def make_web_search_tool(backend: SearchBackend) -> Tool:
+# Main tool handler function
+def run_web_search(input: dict, backend: SearchBackend) -> dict[str, Any]:
+    try:
+        payload = WebSearchInput(**input)
+    except Exception as e:
+        logger.exception("Invalid tool invocation")
+        raise
+
+    # Execute backend search
+    try:
+        items = backend.search_text(query=payload.query.strip(), limit=payload.limit)
+    except Exception as e:
+        logger.exception("Search backend error")
+        # Convert to an MCP-appropriate error response if the SDK has helpers
+        raise
+
+    out = WebSearchOutput(
+        query=payload.query.strip(),
+        results=[WebSearchResultItem(**item) for item in items],
+    )
+    # Return plain dict (MCP SDK will handle JSON serialization)
+    return out.model_dump()
+
+
+def make_web_search_tool() -> Tool:
     """
     Create an MCP Tool that can be registered with FastMCP.
     """
-
-    # Tool handler function
-    def _handler(input: dict) -> dict[str, Any]:
-        try:
-            payload = WebSearchInput(**input)
-        except Exception as e:
-            logger.exception("Invalid tool invocation")
-            raise
-
-        # Execute backend search
-        try:
-            items = backend.search_text(
-                query=payload.query.strip(), limit=payload.limit
-            )
-        except Exception as e:
-            logger.exception("Search backend error")
-            # Convert to an MCP-appropriate error response if the SDK has helpers
-            raise
-
-        out = WebSearchOutput(
-            query=payload.query.strip(),
-            results=[WebSearchResultItem(**item) for item in items],
-        )
-        # Return plain dict (MCP SDK will handle JSON serialization)
-        return out.model_dump()
-
-    # Construct and return the Tool object expected by FastMCP
     return Tool(
         id="web_search",
         name="Web Search",
         description="Perform a web search and return structured results (title, snippet, url).",
         input_schema=WebSearchInput.model_dump_json(),
         output_schema=WebSearchOutput.model_dump_json(),
-        handler=_handler,
         keywords=["search", "web", "google", "bing", "query"],
     )
