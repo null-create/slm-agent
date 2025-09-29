@@ -1,22 +1,20 @@
-version: "3.8"
-
 services:
-  agent:
+  slm-agent:
     build:
       context: ./src/inference
       dockerfile: Dockerfile
-    container_name: SLM-Agent
+    container_name: slm-agent
     restart: unless-stopped
     ports:
       - "9191:9191"
     networks:
       - mcp-network
 
-  mcp-server:
+  slm-mcp-server:
     build:
-      context: ./src/inference/tools
+      context: ./src/tools
       dockerfile: Dockerfile
-    container_name: MCP-Server
+    container_name: slm-mcp-server
     restart: unless-stopped
     ports:
       - "9000:9000"
@@ -26,7 +24,8 @@ services:
       - HOST=0.0.0.0
       - PORT=9000
     volumes:
-      - ./server.json:/app/server.json:ro
+      # server config file
+      - ./src/tools/server.json:/app/server.json:ro
     networks:
       - mcp-network
 
@@ -37,4 +36,3 @@ networks:
 
 volumes:
   mcp-server:
-  agent:
