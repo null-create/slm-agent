@@ -7,3 +7,4 @@ ddgs # for the web search tool
 
 # Utilities
 python-dotenv
+pytest
