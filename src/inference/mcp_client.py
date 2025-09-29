@@ -2,6 +2,7 @@
 MCP (Model Context Protocol) client for interacting with external tools and servers.
 """
 
+import os
 import json
 import asyncio
 import httpx
@@ -44,22 +45,9 @@ class MCPClient:
         self.available_tools = {}
         self._initialize_tools()
 
-    def _initialize_tools(self):
+    def _initialize_tools(self) -> None:
         """Initialize available tools from all servers."""
-        # tools_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "tools")
-
-        # Default tools for demonstration
-        # with open(
-        #     os.path.join(
-        #         os.path.abspath(os.path.dirname(__file__)),
-        #         "schemas",
-        #         "file-reader.json",
-        #     ),
-        #     "r",
-        # ) as f:
-        #     tools = json.load(f)
-
-        # TODO: this needs to be dynamically built based off what's under tools/schemas
+        # TODO: this needs to be dynamically built based off what the server tells us
         self.available_tools = {
             "file_reader": {
                 "server": "file_server",
@@ -69,6 +57,12 @@ class MCPClient:
                     "file_path": {"type": "string", "required": True},
                     "operation": {"type": "string", "default": "read"},
                 },
+            },
+            "web_search": {
+                "server": "web_search",
+                "endpoint": "/search",
+                "description": "Perform a web search and return results",
+                "parameters": {"query": {"type": "string", "required": True}},
             },
         }
 

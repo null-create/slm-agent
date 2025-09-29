@@ -266,7 +266,6 @@ class AgentModelHandler:
                 tool_calls = self.mcp_client.parse_tool_calls(response)
 
                 if not tool_calls:
-                    # No tool calls found, return final response
                     return {
                         "final_response": response,
                         "tool_calls_made": sum(

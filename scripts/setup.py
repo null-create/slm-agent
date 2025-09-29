@@ -49,30 +49,6 @@ def check_gpu() -> bool:
         return False
 
 
-def install_requirements() -> None:
-    """Install Python requirements."""
-    print("Installing Python requirements...")
-
-    # Check if we're in a virtual environment
-    if not (
-        hasattr(sys, "real_prefix")
-        or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
-    ):
-        print("⚠️  Warning: Not in a virtual environment")
-        response = input("Continue anyway? (y/N): ")
-        if response.lower() != "y":
-            print("Please create and activate a virtual environment first:")
-            print("  python -m venv phi3-env")
-            print(
-                "  source phi3-env/bin/activate  # On Windows: phi3-env\\Scripts\\activate"
-            )
-            sys.exit(1)
-
-    # Install requirements
-    run_command(f"{sys.executable} -m pip install --upgrade pip")
-    run_command(f"{sys.executable} -m pip install -r requirements.txt")
-
-
 def setup_wandb() -> None:
     """Setup Weights & Biases for experiment tracking."""
     print("\nSetting up Weights & Biases...")
