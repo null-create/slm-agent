@@ -2,31 +2,37 @@
 
 
 clean:
-    find . -type f -name '*.pyc' -delete
-    rm -rf venv/
-		rm -rf .venv/
+	@echo "Cleaning workspace..."
+	@rm -rf venv
+	@rm -rf .venv
 
 test:
-		@echo "Starting tests..."
-    @pytest -v -s -n auto tests/
+	@echo "Starting tests..."
+	@pytest -v -s -n auto tests/
 
 set-up: 
-		@echo "Setting up project..."
-    @pip install --upgrade pip
-		@pip install -r src/inference/requirements.txt
-		@pip install -r src/tools/requirements.txt
-		@PYTHONPATH=. python scripts/setup.py
+	@echo "Setting up project..."
+	@pip install --upgrade pip
+	@pip install -r src/inference/requirements.txt
+	@pip install -r src/tools/requirements.txt
+	@PYTHONPATH=. python scripts/setup.py
+
+get-base-model:
+	@echo "Downloading base model..."
+	@PYTHONPATH=. python scripts/setup.py
 
 build-agent:
-		@cd src/inference
-		@docker build -t slm-agent .
+	@echo "Building agent docker image..."
+	@cd src/inference
+	@docker build -t slm-agent .
 
 build-server:
-		@cd src/tools
-		@docker build -t slm-mcp-server .
+	@echo "Building MCP Server docker image..."
+	@cd src/tools
+	@docker build -t slm-mcp-server .
 
 docker-run:
-    @docker compose up -d 
+	@docker compose up -d 
 
-docker-stop
-		@docker compose down
+docker-stop:
+	@docker compose down
