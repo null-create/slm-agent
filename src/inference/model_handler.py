@@ -7,7 +7,7 @@ import json
 import logging
 import asyncio
 import threading
-from typing import Optional, Any, Generator, AsyncGenerator, Iterator
+from typing import Optional, Any, AsyncGenerator
 from dataclasses import dataclass
 
 import torch
@@ -119,6 +119,7 @@ class AgentModelHandler:
             model_args = {
                 "dtype": self.torch_dtype,
                 "device_map": self.device,
+                "low_cpu_mem_usage": True,
                 "trust_remote_code": self.trust_remote_code,
                 "attn_implementation": self.attn_implementation,
             }
