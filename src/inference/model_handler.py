@@ -152,7 +152,10 @@ class AgentModelHandler:
             )
 
             # Load the base system prompt
-            prompt_file = "sys-prompt.txt"
+            prompt_file = os.path.join(
+                os.path.abspath(os.path.dirname(__file__)),
+                "sys_prompt.txt",
+            )
             if not os.path.exists(prompt_file):
                 raise FileNotFoundError(f"{prompt_file} not found!")
 
@@ -349,7 +352,11 @@ class AgentModelHandler:
         }
 
     async def _generate_text(
-        self, instruction: str, input_text: str, generation_params: GenerationParams
+        self,
+        instruction: str,
+        input_text: str,
+        generation_params: GenerationParams,
+        use_pipeline: bool = False,
     ) -> str:
         """
         Generate text using the pipeline.
@@ -358,6 +365,7 @@ class AgentModelHandler:
             instruction: The instruction/query
             input_text: Additional input context
             generation_params: Generation parameters
+            use_pipeline: Whether to use the pipeline method for inference
 
         Returns:
             Generated response text
@@ -387,15 +395,55 @@ class AgentModelHandler:
         if generation_params.top_k is not None:
             generation_args["top_k"] = generation_params.top_k
 
-        try:
-            # Use pipeline for generation
-            output = self.pipeline(prompt, **generation_args)
-            response = output[0]["generated_text"].strip()
-            return response
+        if use_pipeline:
+            try:
+                # Use pipeline for generation
+                output = self.pipeline(prompt, **generation_args)
+                response = output[0]["generated_text"].strip()
+                return response
 
-        except Exception as e:
-            self.logger.error(f"Pipeline generation failed: {str(e)}")
-            raise
+            except Exception as e:
+                self.logger.error(f"Pipeline generation failed: {str(e)}")
+                raise
+        else:
+            try:
+                inputs = self.tokenizer(
+                    prompt,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=2048,
+                    padding=True,
+                ).to(self.model.device)
+            except Exception as e:
+                self.logger.error(f"Tokenization failed: {str(e)}")
+                raise
+
+            # Generate response
+            try:
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        **inputs,
+                        max_new_tokens=generation_params.max_new_tokens,
+                        temperature=generation_params.temperature,
+                        top_p=generation_params.top_p,
+                        top_k=generation_params.top_k,
+                        do_sample=generation_params.do_sample,
+                        repetition_penalty=generation_params.repetition_penalty,
+                        pad_token_id=generation_params.pad_token_id
+                        or self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                    )
+
+                # Decode response
+                response = self.tokenizer.decode(
+                    outputs[0][inputs.input_ids.shape[1] :], skip_special_tokens=True
+                ).strip()
+
+                return response
+
+            except Exception as e:
+                self.logger.error(f"Text generation failed: {str(e)}")
+                raise
 
     async def streaming_chat(self) -> None:
         """
