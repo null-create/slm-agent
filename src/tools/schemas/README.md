@@ -1,3 +1,0 @@
-# About
-
-Tool schema definitions
