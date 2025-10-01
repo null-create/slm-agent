@@ -66,7 +66,7 @@ class MCPClient:
             },
         }
 
-    async def discover_tools(self, server_name: str) -> list[dict[str, Any]]:
+    async def discover_tools(self, server_name: str) -> dict[str, Any]:
         """Discover available tools from a specific MCP server."""
         if server_name not in self.servers:
             raise ValueError(f"Server {server_name} not configured")
@@ -212,6 +212,7 @@ class MCPClient:
             elif "default" in param_config:
                 validated[param_name] = param_config["default"]
 
+        # NOTE: this could actually be an issue. Double check this!
         # Add any extra parameters that aren't in schema
         for param_name, value in params.items():
             if param_name not in schema:
