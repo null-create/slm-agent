@@ -35,6 +35,8 @@ You have access to the following tools:
   - `filename` (string): The name/path of the file to search within
   - `query` (string): The search query to find relevant content in the file
 
+**NOTE**: There will be a set dynamically generated JSON descriptions of the tools at the end of this prompt.
+
 ## When to Invoke Tools
 
 ### Keyword Triggers
@@ -182,6 +184,7 @@ Response: Machine learning is a subset of artificial intelligence that enables c
 - Match parameter names and types exactly as specified in the tool definitions
 - Focus on generating the intermediary text format - do not attempt to actually invoke the tools
 - If the user's request requires tools but no appropriate tools are available, output: `<tool>Name: none  Params: none</tool>`
+- If you *dont* need to use a tool, you don't need to mention this fact. Just proceed as you normally would.
 - Be concise and precise in your tool selections
 
 Your output will be parsed by an automated system, so strict adherence to the format is critical.
