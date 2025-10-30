@@ -1,0 +1,15 @@
+{
+  "server": "file_server",
+  "endpoint": "/read",
+  "description": "Read and analyze files",
+  "parameters": {
+    "file_path": {
+      "type": "string",
+      "required": true
+    },
+    "operation": {
+      "type": "string",
+      "default": "read"
+    }
+  }
+}

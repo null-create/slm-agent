@@ -2,7 +2,6 @@
 MCP (Model Context Protocol) client for interacting with external tools and servers.
 """
 
-import os
 import json
 import asyncio
 import httpx
@@ -45,12 +44,12 @@ class MCPClient:
         self.available_tools = {}
         self._initialize_tools()
 
-    def _initialize_tools(self) -> None:
+    def _initialize_tools(self):
         """Initialize available tools from all servers."""
-        # TODO: this needs to be dynamically built based off what the server tells us
+        # TODO: this needs to be retrieve from the MCP server rather than hardcoded
         self.available_tools = {
-            "file_reader": {
-                "server": "file_server",
+            "file-reader": {
+                "server": "slm-mcp-server",
                 "endpoint": "/read",
                 "description": "Read and analyze files",
                 "parameters": {
@@ -58,15 +57,15 @@ class MCPClient:
                     "operation": {"type": "string", "default": "read"},
                 },
             },
-            "web_search": {
-                "server": "web_search",
+            "web-search": {
+                "server": "slm-mcp-server",
                 "endpoint": "/search",
                 "description": "Perform a web search and return results",
                 "parameters": {"query": {"type": "string", "required": True}},
             },
         }
 
-    async def discover_tools(self, server_name: str) -> dict[str, Any]:
+    async def discover_tools(self, server_name: str) -> list[dict[str, Any]]:
         """Discover available tools from a specific MCP server."""
         if server_name not in self.servers:
             raise ValueError(f"Server {server_name} not configured")
@@ -177,8 +176,9 @@ class MCPClient:
             )
 
             # Make request to MCP server
+            url = urljoin(server.base_url, endpoint)
             response = await self.http_client.post(
-                urljoin(server.base_url, endpoint),
+                url,
                 json=validated_params,
                 headers=self._get_auth_headers(server),
             )
@@ -212,7 +212,6 @@ class MCPClient:
             elif "default" in param_config:
                 validated[param_name] = param_config["default"]
 
-        # NOTE: this could actually be an issue. Double check this!
         # Add any extra parameters that aren't in schema
         for param_name, value in params.items():
             if param_name not in schema:

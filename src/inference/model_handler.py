@@ -6,22 +6,17 @@ import os
 import json
 import logging
 import asyncio
-import threading
-from typing import Optional, Any, AsyncGenerator
+from typing import Optional, Any
 from dataclasses import dataclass
 
 import torch
 from peft import PeftModel
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    GenerationConfig,
-    TextIteratorStreamer,
-    pipeline,
-)
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
 
-from .mcp_client import MCPClient
-from .model_config import ModelConfig
+from .mcp_client import MCPClient, MCPServer
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,15 +34,52 @@ class GenerationParams:
 
 class AgentModelHandler:
     """
-    Handler for agent model inference with tool integration.
+    AgentModelHandler is a class for managing the lifecycle and inference of a language model agent,
+    optionally with LoRA adapters and tool integration via an MCP client.
 
-    This class provides an interface for loading fine-tuned models with LoRA adapters,
-    formatting prompts, and generating responses with tool usage capability.
+    This handler is responsible for:
+    - Loading a base language model and tokenizer from a specified path.
+    - Optionally loading a LoRA adapter for fine-tuned weights.
+    - Managing device placement, torch dtype, and trust settings.
+    - Formatting prompts for chat and instruction-following tasks, including chat history.
+    - Generating responses, with support for tool usage via an MCP client, including iterative tool calls.
+    - Providing both synchronous and asynchronous batch generation interfaces.
+    - Returning detailed model and environment information for diagnostics.
+
+    Attributes:
+        base_model_path (str): Path to the base model directory.
+        adapter_path (str, optional): Path to the LoRA adapter directory.
+        mcp_client (MCPClient): Client for tool integration and tool call execution.
+        device (str): Device mapping for model placement (e.g., "cpu", "cuda", "auto").
+        torch_dtype (str): Torch data type for model weights (e.g., "float16", "auto").
+        trust_remote_code (bool): Whether to trust remote code execution for model/tokenizer.
+        padding_side (str): Padding side for the tokenizer ("left" or "right").
+        attn_implementation (str): Attention implementation for model loading.
+        sys_prompt (str): System prompt loaded from file, used as context for all generations.
+        tokenizer (AutoTokenizer): Tokenizer instance for the model.
+        model (AutoModelForCausalLM or PeftModel): Loaded model instance.
+        generation_config (GenerationConfig): Default generation configuration.
+        pipeline (transformers.Pipeline): Text generation pipeline for easier inference.
+        logger (logging.Logger): Logger for status and error reporting.
+
+    Methods:
+        __init__(...): Initialize the handler, load model/tokenizer, and set up logging.
+        _load_model(): Internal method to load model, tokenizer, adapter, and system prompt.
+        _initialized(): Check if model and tokenizer are loaded.
+        format_prompt(instruction, input_text="", chat_history=None): Format a prompt for the model.
+        async chat(): Interactive chat loop for user input and model response.
+        async generate_response(...): Generate a response, optionally using tools via MCP client.
+        async _generate_text(...): Generate text from the model given an instruction and input.
+        _format_tool_results(tool_results): Format tool results for prompt inclusion.
+        async batch_generate_async(...): Asynchronously generate responses for a batch of instructions.
+        batch_generate(...): Synchronous wrapper for batch generation.
+        get_model_info(): Return a dictionary with model and environment information.
+        __repr__(): String representation of the handler instance.
     """
 
     def __init__(
         self,
-        base_model_name: str,
+        base_model_path: str,
         mcp_client: MCPClient,
         adapter_path: str = None,
         device: str = "auto",
@@ -70,7 +102,7 @@ class AgentModelHandler:
             random_seed: Random seed for reproducibility
             padding_side: Padding side for tokenizer
         """
-        self.base_model_name = base_model_name
+        self.base_model_path = base_model_path
         self.adapter_path = adapter_path
         self.mcp_client = mcp_client
         self.device = device
@@ -100,11 +132,11 @@ class AgentModelHandler:
     def _load_model(self) -> None:
         """Load the fine-tuned model and tokenizer."""
         try:
-            self.logger.info(f"Loading tokenizer from: {self.base_model_name}")
+            self.logger.info(f"Loading tokenizer from: {self.base_model_path}")
 
             # Load tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.base_model_name,
+                self.base_model_path,
                 trust_remote_code=self.trust_remote_code,
                 padding_side=self.padding_side,
             )
@@ -113,25 +145,24 @@ class AgentModelHandler:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
-            self.logger.info(f"Loading base model from: {self.base_model_name}")
+            self.logger.info(f"Loading base model from: {self.base_model_path}")
 
             # Prepare model loading arguments
             model_args = {
                 "dtype": self.torch_dtype,
                 "device_map": self.device,
-                "low_cpu_mem_usage": True,
                 "trust_remote_code": self.trust_remote_code,
                 "attn_implementation": self.attn_implementation,
             }
 
             # Load base model
             base_model = AutoModelForCausalLM.from_pretrained(
-                self.base_model_name, **model_args
+                self.base_model_path, **model_args
             )
 
             # Load LoRA adapter for fine-tune models if available, otherwise continue with base model
             if self.adapter_path:
-                self.logger.info(f"Loading LoRA adapter from: {self.base_model_name}")
+                self.logger.info(f"Loading LoRA adapter from: {self.base_model_path}")
                 self.model = PeftModel.from_pretrained(base_model, self.adapter_path)
             else:
                 self.logger.info("Using base model")
@@ -153,8 +184,7 @@ class AgentModelHandler:
 
             # Load the base system prompt
             prompt_file = os.path.join(
-                os.path.abspath(os.path.dirname(__file__)),
-                "sys_prompt.txt",
+                os.path.abspath(os.path.dirname(__file__)), "sys_prompt.txt"
             )
             if not os.path.exists(prompt_file):
                 raise FileNotFoundError(f"{prompt_file} not found!")
@@ -170,12 +200,20 @@ class AgentModelHandler:
             )
 
             self.logger.info("Model loaded successfully!")
-
         except Exception as e:
-            self.logger.error(f"Failed to load model: {str(e)}")
+            self.logger.error(f"Failed to load model: {e}")
             raise
 
-    def format_prompt(self, instruction: str, input_text: str = "") -> str:
+    def _initialized(self) -> bool:
+        """Check if the model and tokenizer are properly initialized."""
+        return self.model is not None and self.tokenizer is not None
+
+    def format_prompt(
+        self,
+        instruction: str,
+        input_text: str = "",
+        chat_history: list[dict[str, str]] = None,
+    ) -> str:
         """
         Format the prompt for the fine-tuned model.
 
@@ -186,43 +224,79 @@ class AgentModelHandler:
         Returns:
             Formatted prompt string
         """
-        try:
-            tools_description = self.mcp_client.get_available_tools_description()
-        except Exception as e:
-            self.logger.warning(f"Failed to get tools description: {e}")
-            tools_description = "No tools available."
+        # Keep our chat history manageable so we don't quickly fill the
+        # model's context window
+        if chat_history and len(chat_history) > 50:
+            chat_history = chat_history[-50:]
 
         if input_text:
-            full_prompt = f"{self.sys_prompt}\n\n### Instruction:\n{instruction}\n\n### Input:\n{input_text}\n\n### Response:\n"
+            if chat_history:
+                history_str = "\n".join(
+                    [
+                        f"User: {h['user']}\nAssistant: {h['assistant']}"
+                        for h in chat_history
+                    ]
+                )
+                full_prompt = (
+                    f"{self.sys_prompt}\n\n### Conversation History:\n{history_str}\n\n"
+                    f"### Instruction:\n{instruction}\n\n"
+                    f"### Input:\n{input_text}\n\n"
+                    f"### Response:\n"
+                )
+            else:
+                full_prompt = (
+                    f"{self.sys_prompt}\n\n"
+                    f"### Instruction:\n{instruction}\n\n"
+                    f"### Input:\n{input_text}\n\n"
+                    f"### Response:\n"
+                )
+        elif chat_history:
+            history_str = "\n".join(
+                [
+                    f"User: {h['user']}\nAssistant: {h['assistant']}"
+                    for h in chat_history
+                ]
+            )
+            full_prompt = (
+                f"{self.sys_prompt}\n\n### Conversation History:\n{history_str}\n\n"
+                f"### Instruction:\n{instruction}\n\n"
+                f"### Response:\n"
+            )
         else:
-            full_prompt = f"{self.sys_prompt}\n\n### Instruction:\n{instruction}\n\n### Response:\n"
+            full_prompt = (
+                f"{self.sys_prompt}\n\n### Instruction:\n{instruction}\n\n"
+                f"### Response:\n"
+            )
 
         return full_prompt
 
     async def chat(self) -> None:
         """
-        Simple chat function
+        Handle a chat message from the user.
+
+        Args:
+            user_message: The message sent by the user
+
+        Returns:
+            The assistant's response
         """
-        print("Starting chat. Press 'q' to quit", end="\n")
-
         while True:
-            user_message = input("> ")
-            if user_message in ["exit", "quit", "q"]:
+            message = input("> ")
+            if message.lower() in ["exit", "quit", "q"]:
                 return
 
-            response = await self.generate_response(instruction=user_message)
-            if "final_response" not in response:
-                self.logger.error("no response found from model")
-                return
-
-            print(response["final_response"], end="\n")
+            response = await self.generate_response(
+                instruction=message, generation_params=self.generation_config
+            )
+            print(f"🤖: {response['final_response']}\n")
 
     async def generate_response(
         self,
         instruction: str,
-        input_text: Optional[str] = "",
+        input_text: str = "",
         generation_params: Optional[GenerationParams] = None,
         max_tool_iterations: int = 3,
+        use_pipeline: bool = True,
     ) -> dict[str, Any]:
         """
         Generate response with tool usage capability.
@@ -232,11 +306,12 @@ class AgentModelHandler:
             input_text: Optional additional input context
             generation_params: Generation parameters
             max_tool_iterations: Maximum number of tool usage iterations
+            use_pipeline: Whether to use the transformers pipeline for generation
 
         Returns:
             dictionary containing the response and metadata
         """
-        if not self.model or not self.tokenizer or not self.pipeline:
+        if not self._initialized():
             raise RuntimeError("Model components not properly initialized")
 
         if generation_params is None:
@@ -254,7 +329,7 @@ class AgentModelHandler:
             try:
                 # Generate text response
                 response = await self._generate_text(
-                    current_instruction, current_input, generation_params
+                    current_instruction, current_input, generation_params, use_pipeline
                 )
 
                 conversation_history.append(
@@ -270,6 +345,7 @@ class AgentModelHandler:
                 tool_calls = self.mcp_client.parse_tool_calls(response)
 
                 if not tool_calls:
+                    # No tool calls found, return final response
                     return {
                         "final_response": response,
                         "tool_calls_made": sum(
@@ -303,8 +379,13 @@ class AgentModelHandler:
                     )
                     self.logger.error(error_msg)
 
+                    # Generate error response
+                    error_response = await self._generate_text(
+                        error_msg, current_input, generation_params, use_pipeline
+                    )
+
                     return {
-                        "final_response": f"I encountered errors while using tools: {error_msg}",
+                        "final_response": error_response,
                         "tool_calls_made": len(tool_calls),
                         "iterations": iteration + 1,
                         "conversation_history": conversation_history,
@@ -359,45 +440,41 @@ class AgentModelHandler:
         use_pipeline: bool = False,
     ) -> str:
         """
-        Generate text using the pipeline.
+        Generate text using the model.
 
         Args:
             instruction: The instruction/query
             input_text: Additional input context
             generation_params: Generation parameters
-            use_pipeline: Whether to use the pipeline method for inference
+            use_pipeline: Whether to use the transformers pipeline for generation
 
         Returns:
             Generated response text
         """
-        if not self.pipeline:
-            raise RuntimeError("Pipeline not initialized")
 
-        if not self.model:
-            raise RuntimeError("Model not initialized")
+        if not self._initialized():
+            raise RuntimeError("Model and/or tokenizer not initialized")
 
         prompt = self.format_prompt(instruction, input_text)
 
-        # Prepare generation arguments for pipeline
-        generation_args = {
-            "max_new_tokens": generation_params.max_new_tokens,
-            "temperature": generation_params.temperature,
-            "top_p": generation_params.top_p,
-            "do_sample": generation_params.do_sample,
-            "repetition_penalty": generation_params.repetition_penalty,
-            "return_full_text": False,  # Only return generated text, not the prompt
-            "pad_token_id": generation_params.pad_token_id
-            or self.tokenizer.pad_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-        }
-
-        # Add top_k if specified
-        if generation_params.top_k is not None:
-            generation_args["top_k"] = generation_params.top_k
-
         if use_pipeline:
+            generation_args = {
+                "max_new_tokens": generation_params.max_new_tokens,
+                "temperature": generation_params.temperature,
+                "top_p": generation_params.top_p,
+                "do_sample": generation_params.do_sample,
+                "repetition_penalty": generation_params.repetition_penalty,
+                "return_full_text": False,  # Only return generated text, not the prompt
+                "pad_token_id": generation_params.pad_token_id
+                or self.tokenizer.pad_token_id,
+                "eos_token_id": self.tokenizer.eos_token_id,
+            }
+
+            # Add top_k if specified
+            if generation_params.top_k is not None:
+                generation_args["top_k"] = generation_params.top_k
+
             try:
-                # Use pipeline for generation
                 output = self.pipeline(prompt, **generation_args)
                 response = output[0]["generated_text"].strip()
                 return response
@@ -405,112 +482,28 @@ class AgentModelHandler:
             except Exception as e:
                 self.logger.error(f"Pipeline generation failed: {str(e)}")
                 raise
+
         else:
-            try:
-                inputs = self.tokenizer(
-                    prompt,
-                    return_tensors="pt",
-                    truncation=True,
-                    max_length=2048,
-                    padding=True,
-                ).to(self.model.device)
-            except Exception as e:
-                self.logger.error(f"Tokenization failed: {str(e)}")
-                raise
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
 
-            # Generate response
-            try:
-                with torch.no_grad():
-                    outputs = self.model.generate(
-                        **inputs,
-                        max_new_tokens=generation_params.max_new_tokens,
-                        temperature=generation_params.temperature,
-                        top_p=generation_params.top_p,
-                        top_k=generation_params.top_k,
-                        do_sample=generation_params.do_sample,
-                        repetition_penalty=generation_params.repetition_penalty,
-                        pad_token_id=generation_params.pad_token_id
-                        or self.tokenizer.pad_token_id,
-                        eos_token_id=self.tokenizer.eos_token_id,
-                    )
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    inputs.input_ids,
+                    max_new_tokens=generation_params.max_new_tokens,
+                    do_sample=generation_params.do_sample,
+                    temperature=generation_params.temperature,
+                    top_p=generation_params.top_p,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                )
 
-                # Decode response
-                response = self.tokenizer.decode(
-                    outputs[0][inputs.input_ids.shape[1] :], skip_special_tokens=True
-                ).strip()
+            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-                return response
-
-            except Exception as e:
-                self.logger.error(f"Text generation failed: {str(e)}")
-                raise
-
-    async def streaming_chat(self) -> None:
-        """
-        Top level runner for using the streaming chat function
-        """
-        while True:
-            message = input("> ")
-            if message.lower() in ["exit", "quit", "q"]:
-                return
-
-            if not self.generation_config:
-                generation_params = GenerationConfig()
+            # Extract only the response part
+            if prompt in generated_text:
+                return generated_text[len(prompt) :].strip()
             else:
-                generation_params = self.generation_config
-
-            async for chunk in self._generate_text_streaming(
-                message, message, generation_params
-            ):
-                print(chunk, end="", flush=True)
-            print()
-
-    async def _generate_text_streaming(
-        self, instruction: str, user_input: str, gen_configs: GenerationConfig
-    ) -> AsyncGenerator[str, None]:
-        """
-        Streaming text implementation using TextIteratorStreamer.
-
-        Args:
-            instruction: The instruction/query
-            input_text: Additional input context
-            generation_params: Generation parameters
-
-        Yields:
-            Generated response text chunks in real time
-        """
-        prompt = self.format_prompt(instruction, user_input)
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-
-        # Create streamer
-        streamer = TextIteratorStreamer(
-            self.tokenizer, skip_prompt=True, skip_special_tokens=True
-        )
-
-        # Set up generation kwargs
-        generation_kwargs = {
-            "input_ids": inputs.input_ids,
-            "max_new_tokens": gen_configs.max_new_tokens,
-            "do_sample": gen_configs.do_sample,
-            "temperature": gen_configs.temperature,
-            "top_p": gen_configs.top_p,
-            "pad_token_id": self.tokenizer.pad_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "streamer": streamer,
-        }
-
-        # Run generation in a separate thread
-        generation_thread = threading.Thread(
-            target=self.model.generate, kwargs=generation_kwargs
-        )
-        generation_thread.start()
-
-        # Yield tokens as they come from the streamer
-        for new_text in streamer:
-            yield new_text
-
-        # Wait for generation to complete
-        generation_thread.join()
+                return generated_text.strip()
 
     def _format_tool_results(self, tool_results: list[dict[str, Any]]) -> str:
         """
@@ -618,7 +611,7 @@ class AgentModelHandler:
             dictionary containing model information
         """
         info = {
-            "base_model_path": self.base_model_name,
+            "base_model_path": self.base_model_path,
             "adapter_path": self.adapter_path,
             "device": str(self.model.device) if self.model else None,
             "model_dtype": str(self.model.dtype) if self.model else None,
@@ -628,7 +621,6 @@ class AgentModelHandler:
             "eos_token_id": self.tokenizer.eos_token_id if self.tokenizer else None,
             "model_loaded": self.model is not None,
             "tokenizer_loaded": self.tokenizer is not None,
-            "pipeline_loaded": self.pipeline is not None,
             "padding_side": self.padding_side,
         }
 
@@ -662,26 +654,62 @@ class AgentModelHandler:
     def __repr__(self) -> str:
         return (
             f"AgentModelHandler("
-            f"base_model='{self.base_model_name}', "
+            f"base_model='{self.base_model_path}', "
             f"adapter='{self.adapter_path}', "
             f"device='{self.device}')"
         )
 
 
-def load_model_handler(configs: ModelConfig) -> AgentModelHandler:
-    if not os.path.exists(configs.MODEL_META_DATA):
-        logging.error(
-            f"no model.json file found for: {configs.MODEL_NAME}\npath: {configs.MODEL_META_DATA}"
-        )
-        exit(1)
+def setup_model_handler(
+    model_info_file: str, base_model: Optional[str] = None
+) -> AgentModelHandler:
+    """
+    Setup the model handler from model info file.
 
-    with open(configs.MODEL_META_DATA, "r") as f:
+    Model file should contain an object with keys:
+    {
+        "base_model": "microsoft/Phi-3.5-mini-instruct",
+        "adapter": null,
+        "dtype": "bfloat16",
+        "device": "auto",
+        "tokenizer": "/path/to/tokenizer.json",
+        "model-dir": "/path/to/model",
+        "model-file": "/path/to/model/file"
+    }
+
+    Args:
+        model_info_file: Path to the model info JSON file (model.json)
+        base_model: Optional base model path override
+
+    Returns:
+        AgentModelHandler instance
+    """
+    with open(model_info_file, "r") as f:
         model_info: dict = json.load(f)
 
-    return AgentModelHandler(
-        base_model_name=model_info.get("model-name"),
-        mcp_client=MCPClient(servers=[]),
-        device=model_info.get("model-device", "auto"),
-        torch_dtype=model_info.get("model-dtype", "auto"),
-        adapter_path=model_info.get("model-adapter", None),
-    )
+    logger.info(f"Load model info from {model_info_file}: {model_info}")
+    logger.info("Initializing model...")
+    try:
+        mcp_server = MCPServer(
+            name="slm-mcp-server",
+            base_url=model_info.get("mcp-server", "http://localhost:9000/mcp"),
+            description="MCP server for tool integration",
+        )
+        return AgentModelHandler(
+            base_model_path=base_model or model_info.get("base_model"),
+            mcp_client=MCPClient(servers=[mcp_server]),
+            adapter_path=model_info.get("adapter"),
+            device=model_info.get("device"),
+            torch_dtype=model_info.get("dtype"),
+        )
+    except Exception as e:
+        logger.error(f"Failed to setup model handler: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    from model_configs import ModelConfig
+
+    model = setup_model_handler(ModelConfig.MODEL_PATH)
+
+    asyncio.run(model.chat())

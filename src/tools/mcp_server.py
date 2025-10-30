@@ -1,23 +1,18 @@
 import os
 import json
-
-import asyncio
 import logging
 from typing import Any
 
 # MCP Resources
-from mcp.types import Tool
-from mcp.server.fastmcp import FastMCP
-from mcp.server.models import InitializationOptions
-from mcp.server.stdio import stdio_server
 from mcp.types import (
-    Resource,
     Tool,
     TextContent,
-    ImageContent,
 )
+from mcp.server.lowlevel import Server
+from mcp.server.models import InitializationOptions
+from mcp.server.session import ServerSession
 
-# Tool definitions
+# Tool implementations
 from file_reader.file_reader import (
     FileReaderError,
     FileReadInput,
@@ -26,27 +21,36 @@ from file_reader.file_reader import (
     FileReadOutput,
     read_file,
     make_file_read_tool,
+    validate_file_access,
 )
 from web_search.web_search import (
     DDGSBackend,
+    WebSearchError,
+    WebSearchInput,
+    WebSearchOutput,
+    WebSearchResultItem,
     WebSearchInput,
     WebSearchOutput,
     WebSearchResultItem,
     make_web_search_tool,
-    WebSearchInput,
-    WebSearchOutput,
-    WebSearchResultItem,
+    run_web_search,
 )
+
+# Server resources
+import uvicorn
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
+from starlette.requests import Request
 
 # Streaming Configuration
 MAX_STREAMING_SIZE = 10 * 1024 * 1024  # 10MB - above this, we use true streaming
 MAX_CONCAT_SIZE = 1 * 1024 * 1024  # 1MB - above this, warn about memory usage
 
 # Load server configurations
-config_file = "server.json"
-if not os.path.exists(
-    os.path.join(os.path.abspath(os.path.dirname(__file__)), config_file)
-):
+config_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), "server.json")
+if not os.path.exists(config_file):
     raise FileNotFoundError(f"{config_file} file not found")
 
 with open(config_file, "r") as f:
@@ -54,71 +58,14 @@ with open(config_file, "r") as f:
 
 server_configs = configs["server"]
 
-# Initialize the MCP server
-server = FastMCP(
-    name=server_configs["name"],
-    version=server_configs["version"],
-    instructions=server_configs["instructions"],
-    tools=[make_web_search_tool(), make_file_read_tool()],
-)
-
 # Set up logging
-logging.basicConfig(level=server_configs["log_level"])
-logger = logging.getLogger(__file__)
+logging.basicConfig(
+    level=server_configs.get("log_level", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("mcp_server")
 
 
-class WebSearchError(Exception):
-    """Custom exception for web search errors"""
-
-    pass
-
-
-@server.list_tools()
-async def handle_list_tools() -> list[Tool]:
-    """
-    List available tools.
-    Each tool specifies its arguments using JSON Schema.
-    """
-    return [
-        Tool(
-            name="web_search",
-            description="Search the web for information on any topic",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query to execute",
-                    },
-                    "num_results": {
-                        "type": "integer",
-                        "description": "Number of search results to return (default: 10, max: 20)",
-                        "minimum": 1,
-                        "maximum": 20,
-                        "default": 10,
-                    },
-                },
-                "required": ["query"],
-            },
-        ),
-        Tool(
-            name="file_reader",
-            description="Read in a file's contents for interpretation by the LLM",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "The absolute path to the file to be opened",
-                    }
-                },
-                "required": ["file_path"],
-            },
-        ),
-    ]
-
-
-@server.call_tool()
 async def handle_websearch_tool_call(name: str, arguments: dict) -> dict[str, Any]:
     """
     Handle tool execution requests.
@@ -138,16 +85,13 @@ async def handle_websearch_tool_call(name: str, arguments: dict) -> dict[str, An
         raise ValueError("Query must be a non-empty string")
 
     try:
-        # Perform the web search
         logger.info(f"Performing web search for query: {query}")
 
-        # Execute backend search
+        # Execute search
         search_engine = DDGSBackend()
         payload = WebSearchInput(query=query, limit=num_results)
 
-        results = await search_engine.search_text(
-            query=payload.query.strip(), limit=payload.limit
-        )
+        results = await run_web_search(payload.model_dump(), search_engine)
 
         # Parse results
         return WebSearchOutput(
@@ -163,7 +107,6 @@ async def handle_websearch_tool_call(name: str, arguments: dict) -> dict[str, An
         return {"error": str(e)}
 
 
-@server.call_tool()
 async def handle_file_read_tool_call(
     name: str, arguments: dict[str, Any]
 ) -> list[TextContent]:
@@ -230,9 +173,6 @@ async def handle_read_file(arguments: dict[str, Any]) -> list[TextContent]:
         # Validate inputs
         file_input = FileReadInput.model_validate(arguments)
         force_streaming = arguments.get("force_streaming", False)
-
-        # Get file size to decide approach
-        from file_reader import validate_file_access
 
         file_path = validate_file_access(file_input.path, file_input.max_file_size)
         file_size = file_path.stat().st_size
@@ -346,8 +286,7 @@ async def handle_streaming_read(
                     )
                 chunks.append(chunk.chunk)
 
-            # NOTE: temp until we implement different approach
-            # to handle the streaming responeses
+            # NOTE: temp until we implement different approach to handle the streaming responses
             # if chunks_read >= 10 or chunk.eof:
             if chunk.eof:
                 break
@@ -386,84 +325,83 @@ Full Content:\n
         return [TextContent(type="text", text=f"Error: {error_msg}")]
 
 
-@server.list_resources()
-async def handle_list_resources() -> list[Resource]:
-    """
-    List available resources.
-    Resources are static content that can be retrieved by the client.
-    """
-    return [
-        Resource(
-            uri="search://help",
-            name="Web Search Help",
-            description="Documentation for the web search tool",
-            mimeType="text/plain",
-        )
-    ]
-
-
-@server.read_resource()
-async def handle_read_resource(uri: str) -> str:
-    """
-    Read a specific resource by URI.
-    """
-    if uri == "search://help":
-        return """Web Search Tool Help
-
-This MCP server provides web search capabilities.
-
-Available Tools:
-- web_search: Search the web for information
-
-Usage:
-  web_search(query="your search terms", num_results=10)
-
-Parameters:
-- query (required): The search query as a string
-- num_results (optional): Number of results to return (1-20, default: 10)
-
-Examples:
-- web_search(query="python programming")
-- web_search(query="latest news AI", num_results=5)
-- web_search(query="weather forecast")
-
-The tool returns formatted search results including:
-- Page titles
-- URLs  
-- Descriptions/snippets
-- Result rankings
-
-Note: This server requires a valid search API key to function properly.
-Configure your API key by setting the SEARCH_API_KEY variable.
-"""
-    else:
-        raise ValueError(f"Unknown resource: {uri}")
-
-
-async def main() -> None:
-    """Main entry point for the server."""
-    # Run the server using stdio transport
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="web-search-server",
-                server_version="1.0.0",
-                capabilities=server.get_capabilities(
-                    notification_options=None,
-                    experimental_capabilities=None,
-                ),
-            ),
-        )
-
-
 if __name__ == "__main__":
-    # Set up proper logging for production
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    server = Server("slm-mcp-server")
+
+    # Register tools with the server
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [make_web_search_tool(), make_file_read_tool()]
+
+    # Tool call handler
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+        logger.info(f"Tool called: {name} with arguments: {arguments}")
+
+        if name == "web_search":
+            result = await handle_websearch_tool_call(name, arguments)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        elif name == "file_reader":
+            return await handle_file_read_tool_call(name, arguments)
+        else:
+            raise ValueError(f"Unknown tool: {name}")
+
+    async def health_check(request: Request):
+        """Health check endpoint"""
+        return JSONResponse({"status": "healthy", "service": "mcp-server"})
+
+    async def mcp_handler(request: Request):
+        """Handle MCP requests over HTTP"""
+        try:
+            if request.method == "POST":
+                # Get the JSON-RPC request
+                body = await request.json()
+
+                # Create a session for this request
+                session = ServerSession(server, InitializationOptions())
+                response = await session.handle_request(body)
+
+                return JSONResponse(response)
+            else:
+                return JSONResponse(
+                    {
+                        "error": "Method not allowed",
+                        "message": "Only POST requests are supported",
+                    },
+                    status_code=405,
+                )
+        except Exception as e:
+            logger.error(f"Error handling MCP request: {str(e)}")
+            return JSONResponse(
+                {"error": "Internal server error", "message": str(e)}, status_code=500
+            )
+
+    # Create the Starlette application
+    app = Starlette(
+        routes=[
+            Route("/health", health_check, methods=["GET"]),
+            Route("/mcp", mcp_handler, methods=["POST", "GET"]),
+            Route(
+                "/mcp/", mcp_handler, methods=["POST", "GET"]
+            ),  # Handle trailing slash
+            Route("/mcp/search", mcp_handler, methods=["POST", "GET"]),
+        ]
     )
 
-    # Run the server
-    asyncio.run(main())
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Configure as needed for production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Start the server
+    uvicorn.run(
+        app,
+        host=server_configs.get("host", "localhost"),
+        port=server_configs.get("port", 9000),
+        log_level=server_configs.get("log_level", "info").lower(),
+        access_log=True,
+    )

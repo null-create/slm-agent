@@ -12,7 +12,7 @@ from typing import Generator, Any, Optional
 import logging
 
 from mcp.types import Tool
-from pydantic import BaseModel, Field, validator, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def validate_file_access(path: str, max_file_size: Optional[int] = None) -> Path
     expanded_path = Path(path).expanduser().resolve()
 
     # Security: Ensure we're not accessing restricted paths
-    # You might want to add more sophisticated path validation here
+    # NOTE: Might want to add more sophisticated path validation here
     if not expanded_path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
@@ -228,7 +228,6 @@ def make_file_read_tool() -> Tool:
         id="file_read_stream",
         name="File Read (streaming)",
         description="Reads a text file and streams chunks back.",
-        input_schema=FileReadInput.model_dump_json(),
-        output_schema=FileChunk.model_dump_json(),
-        streaming=True,
+        inputSchema=FileReadInput.model_json_schema(),
+        outputSchema=FileChunk.model_json_schema(),
     )

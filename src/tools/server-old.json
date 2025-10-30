@@ -1,0 +1,15 @@
+{
+  "server": {
+    "name": "SLM MCP Server",
+    "version": "1.0.0",
+    "instructions": "",
+    "host": "0.0.0.0",
+    "port": 9000,
+    "base-url": "",
+    "description": "",
+    "log-level": "INFO",
+    "token": "",
+    "timeout": 0.0, 
+    "tools": []
+  }
+}

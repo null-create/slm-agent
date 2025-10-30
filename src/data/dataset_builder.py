@@ -3,6 +3,7 @@ Dataset builder for PHI-3.5 agentic fine-tuning.
 Creates datasets with tool usage examples and MCP server interactions.
 """
 
+import os
 import json
 import random
 from typing import List, Dict, Any
@@ -30,21 +31,9 @@ class AgenticDatasetBuilder:
                 "description": "Search the web for information",
                 "parameters": ["query", "max_results"],
             },
-            "calculator": {
-                "description": "Perform mathematical calculations",
-                "parameters": ["expression"],
-            },
-            "weather": {
-                "description": "Get weather information",
-                "parameters": ["location", "date"],
-            },
             "file_reader": {
                 "description": "Read and analyze files",
                 "parameters": ["file_path", "operation"],
-            },
-            "database_query": {
-                "description": "Query a database",
-                "parameters": ["query", "table"],
             },
         }
 
@@ -57,10 +46,7 @@ class AgenticDatasetBuilder:
         # Generate instruction based on tool and scenario
         instructions = {
             "web_search": f"Search for information about {scenario}",
-            "calculator": f"Calculate {scenario}",
-            "weather": f"Check the weather for {scenario}",
             "file_reader": f"Read and analyze the file containing {scenario}",
-            "database_query": f"Query the database for {scenario}",
         }
 
         instruction = instructions.get(
@@ -142,15 +128,9 @@ class AgenticDatasetBuilder:
         """Generate realistic parameters for each tool type."""
         param_generators = {
             "web_search": lambda s: {"query": s, "max_results": 5},
-            "calculator": lambda s: {"expression": "2 + 2"},
-            "weather": lambda s: {"location": "New York", "date": "today"},
             "file_reader": lambda s: {
                 "file_path": f"/data/{s}.txt",
                 "operation": "read",
-            },
-            "database_query": lambda s: {
-                "query": f"SELECT * FROM items WHERE category = '{s}'",
-                "table": "items",
             },
         }
 
@@ -187,18 +167,7 @@ class AgenticDatasetBuilder:
                 "best restaurants in Seattle",
                 "climate change effects",
             ],
-            "calculator": [
-                "the compound interest",
-                "the area of a circle",
-                "percentage increase",
-            ],
-            "weather": ["New York tomorrow", "London next week", "Tokyo this weekend"],
             "file_reader": ["sales data", "log files", "configuration settings"],
-            "database_query": [
-                "user information",
-                "product inventory",
-                "sales records",
-            ],
         }
 
         return random.choice(scenarios.get(tool_name, ["general information"]))
@@ -207,8 +176,6 @@ class AgenticDatasetBuilder:
         """Generate scenarios that require multiple tools."""
         scenarios = [
             "research and calculate the cost of living comparison between two cities",
-            "find weather data and create a travel recommendation report",
-            "analyze sales data and search for market trends",
             "read configuration files and calculate system performance metrics",
         ]
         return random.choice(scenarios)

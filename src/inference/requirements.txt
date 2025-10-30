@@ -1,6 +1,6 @@
 # Core ML libraries
 torch
-transformers==4.50.0 # this seems to be more stable?
+transformers
 peft
 datasets
 accelerate
@@ -23,8 +23,3 @@ wandb
 tensorboard
 rouge-score
 sacrebleu
-
-# Utilities
-python-dotenv
-rich
-typer

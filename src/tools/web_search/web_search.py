@@ -1,22 +1,27 @@
 """
 web_search.py
-A minimal but production-minded MCP "web_search" tool using the MCP Python SDK.
+A minimal MCP "web_search" tool using the DDGS library.
 
 See: https://pypi.org/project/ddgs/
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
 import logging
+from typing import Any, Optional
 
-import httpx
-from pydantic import BaseModel, Field
 from ddgs import DDGS
 from mcp import Tool
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("mcp_web_search")
 logging.basicConfig(level=logging.INFO)
+
+
+class WebSearchError(Exception):
+    """Custom exception for web search errors"""
+
+    pass
 
 
 class WebSearchInput(BaseModel):
@@ -95,10 +100,9 @@ def make_web_search_tool() -> Tool:
     Create an MCP Tool that can be registered with FastMCP.
     """
     return Tool(
-        id="web_search",
         name="Web Search",
+        title="Web Search",
         description="Perform a web search and return structured results (title, snippet, url).",
-        input_schema=WebSearchInput.model_dump_json(),
-        output_schema=WebSearchOutput.model_dump_json(),
-        keywords=["search", "web", "google", "bing", "query"],
+        inputSchema=WebSearchInput.model_json_schema(),
+        outputSchema=WebSearchOutput.model_json_schema(),
     )

@@ -1,56 +1,28 @@
 {
-  "server": {
-    "name": null,
-    "version": "1.0.0",
-    "instructions": null,
-    "auth_server_provider": null,
-    "token_verifier": null,
-    "auth": null,
-    "transport_security": null,
-    "tools": [],
-    "event_store": null,
-    "debug": false,
-    "log_level": "INFO",
-    "host": "127.0.0.1",
-    "port": 8000,
-    "mount_path": "/",
-    "sse_path": "/sse",
-    "message_path": "/messages/",
-    "streamable_http_path": "/mcp",
-    "json_response": false,
-    "stateless_http": false,
-    "warn_on_duplicate_resources": true,
-    "warn_on_duplicate_tools": true,
-    "warn_on_duplicate_prompts": true,
-    "dependencies": [],
-    "lifespan": null
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.NBCUniversal/slm-mcp-server",
+  "description": "An MCP server that provides web search and file search tools for an SLM agent",
+  "repository": {
+    "url": "https://github.com/NBCUniversal/slm-mcp-server",
+    "source": "github"
   },
-  "tools": [
+  "version": "1.0.0",
+  "packages": [
     {
-      "server": "file_server",
-      "endpoint": "/read",
-      "description": "Read and analyze files",
-      "parameters": {
-        "file_path": {
-          "type": "string",
-          "required": true
-        },
-        "operation": {
-          "type": "string",
-          "default": "read"
+      "registryType": "oci",
+      "identifier": "docker.io/slm-mcp-server:1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "description": "Your API key for the service",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true,
+          "name": "YOUR_API_KEY"
         }
-      }
-    },
-    {
-      "server": "web_search",
-      "endpoint": "/search",
-      "description": "Perform a web search and return results",
-      "parameters": {
-        "query": {
-          "type": "string",
-          "required": true
-        }
-      }
+      ]
     }
   ]
 }
