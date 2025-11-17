@@ -11,7 +11,6 @@ import logging
 from typing import Any, Optional
 
 from ddgs import DDGS
-from mcp import Tool
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("mcp_web_search")
@@ -79,17 +78,15 @@ def run_web_search(input: dict, backend: SearchBackend) -> dict[str, Any]:
         logger.exception("Invalid tool invocation")
         raise
 
-    # Execute backend search
     try:
         items = backend.search_text(query=payload.query.strip(), limit=payload.limit)
     except Exception as e:
         logger.exception("Search backend error")
-        # Convert to an MCP-appropriate error response if the SDK has helpers
         raise
 
     out = WebSearchOutput(
         query=payload.query.strip(),
         results=[WebSearchResultItem(**item) for item in items],
     )
-    # Return plain dict (MCP SDK will handle JSON serialization)
+
     return out.model_dump()
