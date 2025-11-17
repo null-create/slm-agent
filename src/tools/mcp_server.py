@@ -42,7 +42,7 @@ server_configs = configs["server"]
 
 # Set up logging
 logging.basicConfig(
-    level=server_configs.get("log_level", "INFO"),
+    level=server_configs.get("log-level", "INFO"),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("mcp_server")
@@ -51,7 +51,7 @@ logger = logging.getLogger("mcp_server")
 mcp = FastMCP(name="slm-mcp-server", host=HOST, port=PORT, debug=True)
 
 
-@mcp.tool()
+@mcp.tool(name="web_search")
 async def web_search(query: str, num_results: int = 10) -> dict[str, Any]:
     """
     Search the web using DuckDuckGo.
@@ -90,7 +90,7 @@ async def web_search(query: str, num_results: int = 10) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-@mcp.tool()
+@mcp.tool(name="read_file_info")
 async def read_file_info(path: str, chunk_size: int = 4096) -> str:
     """
     Get file information without reading contents.
@@ -139,7 +139,7 @@ Memory usage estimate:
         return f"Error: {error_msg}"
 
 
-@mcp.tool()
+@mcp.tool(name="read_file")
 async def read_file(
     path: str,
     chunk_size: int = 4096,
@@ -305,4 +305,8 @@ Full Content:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    try:
+        logger.info(f"Starting server at: {HOST}:{PORT}")
+        mcp.run(transport="streamable-http")
+    except KeyboardInterrupt:
+        logger.info("Shutting down server...")

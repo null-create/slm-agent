@@ -93,16 +93,3 @@ def run_web_search(input: dict, backend: SearchBackend) -> dict[str, Any]:
     )
     # Return plain dict (MCP SDK will handle JSON serialization)
     return out.model_dump()
-
-
-def make_web_search_tool() -> Tool:
-    """
-    Create an MCP Tool that can be registered with FastMCP.
-    """
-    return Tool(
-        name="Web Search",
-        title="Web Search",
-        description="Perform a web search and return structured results (title, snippet, url).",
-        inputSchema=WebSearchInput.model_json_schema(),
-        outputSchema=WebSearchOutput.model_json_schema(),
-    )
