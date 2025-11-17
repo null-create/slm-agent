@@ -1,5 +1,5 @@
 """
-Evaluation module for PHI-3.5 agent model.
+Evaluation module for agent model.
 Includes metrics for tool usage, instruction following, and response quality.
 """
 
