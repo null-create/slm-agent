@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from src.inference.base_model import download_base_model
-from src.inference.model_config import ModelConfig
+from src.inference.model_configs import ModelConfig
 
 
 def run_command(command: str, cwd: str = None, check: bool = True) -> str:
