@@ -1,11 +1,11 @@
 import asyncio
 import argparse
 
-from src.inference.model_config import ModelConfig
-from src.inference.model_handler import load_model_handler
+from src.inference.model_configs import ModelConfig
+from src.inference.model_handler import setup_model_handler
 
 model_config = ModelConfig()
-model = load_model_handler(model_config)
+model = setup_model_handler(model_config)
 
 
 def parse_args() -> argparse.Namespace:
