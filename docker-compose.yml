@@ -24,7 +24,6 @@ services:
       - HOST=0.0.0.0
       - PORT=9000
     volumes:
-      # server config file
       - ./src/tools/server.json:/app/server.json:ro
     networks:
       - mcp-network
