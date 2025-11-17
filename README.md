@@ -1,10 +1,10 @@
-# PHI-3.5 Agent Fine-tuning for MCP Integration
+# Small Language Model (SLM) Agent Fine-tuning with MCP Integration
 
-This project provides a complete pipeline for fine-tuning Microsoft's PHI-3.5-Mini-Instruct model for agentic use cases with Model Context Protocol (MCP) server integration and external tool usage.
+This project provides a complete pipeline for fine-tuning small language models for agentic use cases with Model Context Protocol (MCP) server integration and external tool usage.
 
 ## 🎯 Project Overview
 
-Fine-tune PHI-3.5-Mini-Instruct to create an intelligent agent capable of:
+Fine-tune small language models to create an intelligent agent capable of:
 
 - **Tool Selection**: Automatically choose appropriate tools for tasks
 - **Parameter Extraction**: Extract correct parameters for tool calls
@@ -15,7 +15,7 @@ Fine-tune PHI-3.5-Mini-Instruct to create an intelligent agent capable of:
 ## 🏗️ Architecture
 
 ```
-User Request → PHI-3.5 Agent → Tool Selection → MCP Client → External Tools
+User Request → SLM Agent → Tool Selection → MCP Client → External Tools
                      ↑                                              ↓
               Final Response ← Response Generation ← Tool Results ←
 ```
@@ -27,11 +27,11 @@ User Request → PHI-3.5 Agent → Tool Selection → MCP Client → External To
 ```bash
 # Clone and navigate to project
 git clone <repository>
-cd phi3-agent-finetuning
+cd model-agent-finetuning
 
 # Create virtual environment
-python -m venv phi3-env
-source phi3-env/bin/activate  # Windows: phi3-env\Scripts\activate
+python -m venv model-env
+source model-env/bin/activate  # Windows: model-env\Scripts\activate
 
 # Run setup script
 python scripts/setup.py
@@ -55,7 +55,7 @@ python scripts/train_model.py --config config/training_config.yaml
 python scripts/train_model.py \
   --config config/training_config.yaml \
   --data-samples 10000 \
-  --wandb-project my-phi3-agent
+  --wandb-project my-model-agent
 ```
 
 ### 4. Evaluation
@@ -63,12 +63,12 @@ python scripts/train_model.py \
 ```bash
 # Comprehensive evaluation
 python scripts/evaluate_model.py \
-  --model-path ./models/phi3-agent-final \
+  --model-path ./models/model-agent-final \
   --run-benchmarks
 
 # Generate evaluation dataset
 python scripts/evaluate_model.py \
-  --model-path ./models/phi3-agent-final \
+  --model-path ./models/model-agent-final \
   --generate-eval-data \
   --eval-samples 500
 ```
@@ -78,12 +78,12 @@ python scripts/evaluate_model.py \
 ```bash
 # Interactive demo
 python scripts/inference_demo.py \
-  --model-path ./models/phi3-agent-final \
+  --model-path ./models/model-agent-final \
   --mode interactive
 
 # Run benchmarks
 python scripts/inference_demo.py \
-  --model-path ./models/phi3-agent-final \
+  --model-path ./models/model-agent-final \
   --mode benchmark
 ```
 
@@ -155,7 +155,7 @@ training:
 ## 📁 Project Structure
 
 ```
-phi3-agent-finetuning/
+slm-agent/
 ├── requirements.txt              # Dependencies
 ├── README.md                     # This file
 ├── config/
@@ -202,7 +202,7 @@ builder.save_dataset(dataset, 'custom_dataset.json')
 python scripts/train_model.py \
   --config config/training_config.yaml \
   --data-samples 1000 \
-  --wandb-project phi3-experiment
+  --wandb-project model-experiment
 ```
 
 ### 3. Model Evaluation
@@ -220,8 +220,8 @@ python scripts/evaluate_model.py \
 ```bash
 # Export optimized model
 python -c "
-from src.training.trainer import PHI3AgentTrainer
-trainer = PHI3AgentTrainer('config/training_config.yaml')
+from src.training.trainer import AgentTrainer
+trainer = AgentTrainer('config/training_config.yaml')
 trainer.save_model_for_inference('./models/production')
 "
 ```
@@ -321,19 +321,6 @@ def _evaluate_custom_metric(self, sample, result):
 
 ## 📚 References
 
-- [PHI-3.5 Model Paper](https://arxiv.org/abs/2404.14219)
 - [LoRA: Low-Rank Adaptation](https://arxiv.org/abs/2106.09685)
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 - [Weights & Biases Documentation](https://docs.wandb.ai/)
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙋‍♂️ Support
-
-For questions and support:
-
-- Open an issue in the repository
-- Check the troubleshooting section above
-- Review the evaluation metrics for model performance
