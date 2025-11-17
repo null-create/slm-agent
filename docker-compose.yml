@@ -1,5 +1,5 @@
 services:
-  slm-agent:
+  agent:
     build:
       context: ./src/inference
       dockerfile: Dockerfile
@@ -10,7 +10,7 @@ services:
     networks:
       - mcp-network
 
-  slm-mcp-server:
+  mcp-server:
     build:
       context: ./src/tools
       dockerfile: Dockerfile
