@@ -8,6 +8,9 @@ huggingface_hub
 flash-attention
 sentencepiece
 
+# Model server
+Flask
+
 # Training and optimization
 bitsandbytes
 scipy
