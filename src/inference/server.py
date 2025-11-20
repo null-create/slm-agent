@@ -354,7 +354,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--port", type=int, default=PORT, help=f"Server port number (default: {PORT}"
     )
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug mode", default=True
+    )
 
     args = parser.parse_args()
 
