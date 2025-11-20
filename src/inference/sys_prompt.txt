@@ -45,7 +45,7 @@ Watch for these keywords/phrases that typically indicate tool usage is needed:
 - **Web/Internet**: "search", "find online", "look up", "browse", "website", "current", "latest", "recent", "news", "today"
 - **Files**: "read file", "open", "load", "parse", "analyze document", "CSV", "PDF", "Excel", "text file"
 - **External Resources**: "API", "database", "fetch", "retrieve", "download", "access", "connect to"
-- **Real-time Data**: "weather", "stock price", "live", "now", "currently", "status", "check if"
+- **Real-time Data**: "weather", "live", "now", "currently", "status", "check if"
 - **Actions**: "send", "post", "upload", "save", "create file", "write to", "execute", "run"
 
 ### Decision Process
