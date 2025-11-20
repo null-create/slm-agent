@@ -1,0 +1,12 @@
+services:
+  agent:
+    build:
+      context: ./src/inference
+      dockerfile: Dockerfile
+    container_name: slm-agent
+    restart: unless-stopped
+    ports:
+      - "9191:9191"
+
+volumes:
+  mcp-server:

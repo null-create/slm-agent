@@ -21,18 +21,18 @@ get-base-model:
 	@echo "Downloading base model..."
 	@PYTHONPATH=. python scripts/setup.py
 
-build-agent:
-	@echo "Building agent docker image..."
-	@cd src/inference
-	@docker build -t slm-agent .
+run-agent:
+	@echo "Starting agent in container..."
+	@docker compose -f docker-compose-agent.yml -d --build
 
-build-server:
+stop-agent:
+	@echo "Shutting down agent..."
+	@docker compose -f docker-compose-agent.yml down
+
+run-server:
 	@echo "Building MCP Server docker image..."
-	@cd src/tools
-	@docker build -t slm-mcp-server .
+	@docker compose -f docker-compose-mcp.yml -d --build
 
-docker-run:
-	@docker compose up -d 
-
-docker-stop:
-	@docker compose down
+stop-server:
+	@echo "Stopping MCP server..."
+	@docker compose -f docker-compose-mcp.yml down
