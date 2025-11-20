@@ -707,6 +707,8 @@ def setup_model_handler(
         raise
 
 
+# TODO: add Flask app to serve model over specified endpoints so it can interact over the network
+
 if __name__ == "__main__":
     from model_configs import ModelConfig
 

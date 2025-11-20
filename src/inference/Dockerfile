@@ -85,7 +85,7 @@ USER appuser
 COPY --chown=appuser:appuser ./src .
 COPY --chown=appuser:appuser ./scripts .
 
-EXPOSE 8000 8080
+EXPOSE 9191
 
 # Set default environment variables that can be overridden
 ENV MODEL_NAME=""
@@ -94,9 +94,5 @@ ENV DATA_PATH="/app/data"
 ENV LOG_LEVEL="INFO"
 ENV DEVICE="cuda"
 
-# Health check (adjust the endpoint as needed for your application)
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
-
 # Default command (adjust as needed for your application entry point)
-CMD ["python", "main.py"]
+CMD ["python", "server.py"]
