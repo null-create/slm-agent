@@ -16,6 +16,8 @@ DEFAULT_MODEL = "microsoft/Phi-3.5-mini-instruct"
 class ModelConfig:
     MODEL_NAME = os.getenv("SLM_MODEL_NAME", DEFAULT_MODEL)
     MODEL_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "model")
+    MODEL_HOST = os.path.join("SLM_MODEL_HOST", "0.0.0.0")
+    MODEL_PORT = int(os.path.join("SLM_MODEL_PORT", "9999"))
     MODEL_PATH = os.getenv("SLM_MODEL_PATH", os.path.join(MODEL_DIR, MODEL_NAME))
     MODEL_TOKENIZER = os.getenv(
         "SLM_MODEL_TOKENIZER", os.path.join(MODEL_PATH, "tokenizer.json")

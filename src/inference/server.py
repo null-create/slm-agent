@@ -13,14 +13,17 @@ from flask_cors import CORS
 import uuid
 
 from model_handler import AgentModelHandler, GenerationParams, setup_model_handler
+from model_configs import ModelConfig
+
+cfgs = ModelConfig()
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-PORT = 9191
-HOST = "0.0.0.0"
+PORT = cfgs.MODEL_PORT
+HOST = cfgs.MODEL_HOST
 
 
 class AgentServer:
@@ -337,10 +340,17 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="SLM Agent HTTP Server")
     parser.add_argument(
-        "--model-info", type=str, required=True, help="Path to model info JSON file"
+        "--model-info",
+        type=str,
+        required=True,
+        help="Path to model info JSON file",
+        default=cfgs.MODEL_META_DATA,
     )
     parser.add_argument(
-        "--base-model", type=str, default=None, help="Override base model path"
+        "--base-model",
+        type=str,
+        help="Override base model path",
+        default=cfgs.MODEL_PATH,
     )
     parser.add_argument(
         "--host",
