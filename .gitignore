@@ -9,3 +9,7 @@ model
 # misc
 .local
 .env
+
+# UI
+node_modules
+dist
