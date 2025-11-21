@@ -3,15 +3,12 @@ HTTP server for serving the SLM agent model.
 Provides REST API endpoints for chat interactions and model management.
 """
 
-import os
-import json
 import logging
 import asyncio
 from typing import Optional, Dict, Any
 from datetime import datetime
-from dataclasses import asdict
 
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import uuid
 
